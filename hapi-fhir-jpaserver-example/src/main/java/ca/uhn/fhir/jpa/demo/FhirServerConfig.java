@@ -9,6 +9,7 @@ import ca.uhn.fhir.jpa.search.LuceneSearchMappingFactory;
 import ca.uhn.fhir.jpa.util.DerbyTenSevenHapiFhirDialect;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.lang3.time.DateUtils;
+import org.hibernate.dialect.MySQL5Dialect;
 import org.hibernate.jpa.HibernatePersistenceProvider;
 import org.springframework.beans.factory.annotation.Autowire;
 import org.springframework.context.annotation.Bean;
@@ -23,6 +24,8 @@ import ca.uhn.fhir.jpa.util.SubscriptionsRequireManualActivationInterceptorDstu3
 import ca.uhn.fhir.rest.server.interceptor.IServerInterceptor;
 import ca.uhn.fhir.rest.server.interceptor.LoggingInterceptor;
 import ca.uhn.fhir.rest.server.interceptor.ResponseHighlighterInterceptor;
+
+import java.sql.*;
 
 /**
  * This is the primary configuration file for the example server
@@ -50,10 +53,18 @@ public class FhirServerConfig extends BaseJavaConfigDstu3 {
 	@Bean(destroyMethod = "close")
 	public DataSource dataSource() {
 		BasicDataSource retVal = new BasicDataSource();
-		retVal.setDriver(new org.apache.derby.jdbc.EmbeddedDriver());
-		retVal.setUrl("jdbc:derby:directory:target/jpaserver_derby_files;create=true");
-		retVal.setUsername("");
-		retVal.setPassword("");
+		// retVal.setDriver(new org.apache.derby.jdbc.EmbeddedDriver());
+		try {
+			retVal.setDriver(new com.mysql.jdbc.Driver());
+		} catch (SQLException e) {
+		// 	// TODO Auto-generated catch block
+		// 	e.printStackTrace();
+		}
+		// retVal.setUrl("jdbc:derby:directory:target/jpaserver_derby_files;create=true");
+		// retVal.setUrl("jdbc:mysql://localhost:3306/dbfhir?useSSL=false&serverTimezone=UTC");
+		retVal.setUrl("jdbc:mysql://hapi_db:3306/hapifhir");
+		retVal.setUsername("root");
+		retVal.setPassword("root");
 		return retVal;
 	}
 
@@ -68,10 +79,11 @@ public class FhirServerConfig extends BaseJavaConfigDstu3 {
 
 	private Properties jpaProperties() {
 		Properties extraProperties = new Properties();
-		extraProperties.put("hibernate.dialect", DerbyTenSevenHapiFhirDialect.class.getName());
+		// extraProperties.put("hibernate.dialect", DerbyTenSevenHapiFhirDialect.class.getName());
+		extraProperties.put("hibernate.dialect", MySQL5Dialect.class.getName());
 		extraProperties.put("hibernate.format_sql", "true");
 		extraProperties.put("hibernate.show_sql", "false");
-		extraProperties.put("hibernate.hbm2ddl.auto", "update");
+		extraProperties.put("hibernate.hbm2ddl.auto", "create");
 		extraProperties.put("hibernate.jdbc.batch_size", "20");
 		extraProperties.put("hibernate.cache.use_query_cache", "false");
 		extraProperties.put("hibernate.cache.use_second_level_cache", "false");
