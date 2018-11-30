@@ -15,9 +15,14 @@ import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.conformance.ProfileUtilities;
 import org.hl7.fhir.r4.context.IWorkerContext;
-import org.hl7.fhir.r4.hapi.ctx.*;
+import org.hl7.fhir.r4.hapi.ctx.DefaultProfileValidationSupport;
+import org.hl7.fhir.r4.hapi.ctx.HapiWorkerContext;
+import org.hl7.fhir.r4.hapi.ctx.IValidationSupport;
 import org.hl7.fhir.r4.hapi.ctx.IValidationSupport.CodeValidationResult;
+import org.hl7.fhir.r4.hapi.validation.CachingValidationSupport;
 import org.hl7.fhir.r4.hapi.validation.FhirInstanceValidator;
+import org.hl7.fhir.r4.hapi.validation.PrePopulatedValidationSupport;
+import org.hl7.fhir.r4.hapi.validation.ValidationSupportChain;
 import org.hl7.fhir.r4.model.*;
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent;
 import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionComponent;
@@ -25,9 +30,11 @@ import org.hl7.fhir.r4.model.Observation.ObservationStatus;
 import org.hl7.fhir.r4.model.StructureDefinition.StructureDefinitionKind;
 import org.hl7.fhir.r4.model.ValueSet.ConceptSetComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionComponent;
+import org.hl7.fhir.r4.terminologies.ValueSetExpander;
 import org.hl7.fhir.r4.utils.FHIRPathEngine;
 import org.hl7.fhir.r4.utils.IResourceValidator;
 import org.hl7.fhir.utilities.validation.ValidationMessage;
+import org.hl7.fhir.utilities.xhtml.XhtmlNode;
 import org.junit.*;
 import org.junit.rules.TestRule;
 import org.junit.rules.TestWatcher;
@@ -43,7 +50,7 @@ import java.util.zip.GZIPInputStream;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -54,6 +61,7 @@ public class FhirInstanceValidatorR4Test {
 	private static FhirContext ourCtx = FhirContext.forR4();
 	@Rule
 	public TestRule watcher = new TestWatcher() {
+		@Override
 		protected void starting(Description description) {
 			ourLog.info("Starting test: " + description.getMethodName());
 		}
@@ -70,6 +78,22 @@ public class FhirInstanceValidatorR4Test {
 		myValidConcepts.add(theSystem + "___" + theCode);
 	}
 
+	/**
+	 * An invalid local reference should not cause a ServiceException.
+	 */
+	@Test
+	public void testInvalidLocalReference() {
+		QuestionnaireResponse resource = new QuestionnaireResponse();
+		resource.setStatus(QuestionnaireResponse.QuestionnaireResponseStatus.COMPLETED);
+		resource.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
+
+		resource.setSubject(new Reference("#invalid-ref"));
+
+		ValidationResult output = myVal.validateWithResult(resource);
+		List<SingleValidationMessage> nonInfo = logResultsAndReturnNonInformationalOnes(output);
+		assertThat(nonInfo, hasSize(2));
+	}
+
 	@SuppressWarnings("unchecked")
 	@Before
 	public void before() {
@@ -78,7 +102,7 @@ public class FhirInstanceValidatorR4Test {
 		myVal.setValidateAgainstStandardSchematron(false);
 
 		myMockSupport = mock(IValidationSupport.class);
-		ValidationSupportChain validationSupport = new ValidationSupportChain(myMockSupport, myDefaultValidationSupport);
+		CachingValidationSupport validationSupport = new CachingValidationSupport(new ValidationSupportChain(myMockSupport, myDefaultValidationSupport));
 		myInstanceVal = new FhirInstanceValidator(validationSupport);
 
 		myVal.registerValidatorModule(myInstanceVal);
@@ -87,77 +111,81 @@ public class FhirInstanceValidatorR4Test {
 
 		myValidConcepts = new ArrayList<>();
 
-		when(myMockSupport.expandValueSet(any(FhirContext.class), any(ConceptSetComponent.class))).thenAnswer(new Answer<ValueSetExpansionComponent>() {
+		when(myMockSupport.expandValueSet(nullable(FhirContext.class), nullable(ConceptSetComponent.class))).thenAnswer(new Answer<ValueSetExpander.ValueSetExpansionOutcome>() {
 			@Override
-			public ValueSetExpansionComponent answer(InvocationOnMock theInvocation) throws Throwable {
-				ConceptSetComponent arg = (ConceptSetComponent) theInvocation.getArguments()[ 0 ];
+			public ValueSetExpander.ValueSetExpansionOutcome answer(InvocationOnMock theInvocation) throws Throwable {
+				ConceptSetComponent arg = (ConceptSetComponent) theInvocation.getArguments()[1];
 				ValueSetExpansionComponent retVal = mySupportedCodeSystemsForExpansion.get(arg.getSystem());
 				if (retVal == null) {
-					retVal = myDefaultValidationSupport.expandValueSet(any(FhirContext.class), arg);
+					ValueSetExpander.ValueSetExpansionOutcome outcome = myDefaultValidationSupport.expandValueSet(ourCtx, arg);
+					return outcome;
 				}
-				ourLog.debug("expandValueSet({}) : {}", new Object[] {theInvocation.getArguments()[ 0 ], retVal});
-				return retVal;
+				ourLog.debug("expandValueSet({}) : {}", new Object[]{theInvocation.getArguments()[0], retVal});
+
+				ValueSet valueset = new ValueSet();
+				valueset.setExpansion(retVal);
+				return new ValueSetExpander.ValueSetExpansionOutcome(valueset);
 			}
 		});
-		when(myMockSupport.isCodeSystemSupported(any(FhirContext.class), any(String.class))).thenAnswer(new Answer<Boolean>() {
+		when(myMockSupport.isCodeSystemSupported(nullable(FhirContext.class), nullable(String.class))).thenAnswer(new Answer<Boolean>() {
 			@Override
 			public Boolean answer(InvocationOnMock theInvocation) throws Throwable {
-				boolean retVal = myValidSystems.contains(theInvocation.getArguments()[ 1 ]);
-				ourLog.debug("isCodeSystemSupported({}) : {}", new Object[] {theInvocation.getArguments()[ 1 ], retVal});
+				boolean retVal = myValidSystems.contains(theInvocation.getArguments()[1]);
+				ourLog.debug("isCodeSystemSupported({}) : {}", new Object[]{theInvocation.getArguments()[1], retVal});
 				return retVal;
 			}
 		});
-		when(myMockSupport.fetchResource(any(FhirContext.class), any(Class.class), any(String.class))).thenAnswer(new Answer<IBaseResource>() {
+		when(myMockSupport.fetchResource(nullable(FhirContext.class), nullable(Class.class), nullable(String.class))).thenAnswer(new Answer<IBaseResource>() {
 			@Override
 			public IBaseResource answer(InvocationOnMock theInvocation) throws Throwable {
 				IBaseResource retVal;
-				String id = (String) theInvocation.getArguments()[ 2 ];
+				String id = (String) theInvocation.getArguments()[2];
 				if ("Questionnaire/q_jon".equals(id)) {
 					retVal = ourCtx.newJsonParser().parseResource(IOUtils.toString(FhirInstanceValidatorR4Test.class.getResourceAsStream("/q_jon.json")));
 				} else {
-					retVal = myDefaultValidationSupport.fetchResource((FhirContext) theInvocation.getArguments()[ 0 ], (Class<IBaseResource>) theInvocation.getArguments()[ 1 ], id);
+					retVal = myDefaultValidationSupport.fetchResource((FhirContext) theInvocation.getArguments()[0], (Class<IBaseResource>) theInvocation.getArguments()[1], id);
 				}
-				ourLog.debug("fetchResource({}, {}) : {}", new Object[] {theInvocation.getArguments()[ 1 ], id, retVal});
+				ourLog.debug("fetchResource({}, {}) : {}", new Object[]{theInvocation.getArguments()[1], id, retVal});
 				return retVal;
 			}
 		});
-		when(myMockSupport.validateCode(any(FhirContext.class), any(String.class), any(String.class), any(String.class))).thenAnswer(new Answer<CodeValidationResult>() {
+		when(myMockSupport.validateCode(nullable(FhirContext.class), nullable(String.class), nullable(String.class), nullable(String.class))).thenAnswer(new Answer<CodeValidationResult>() {
 			@Override
 			public CodeValidationResult answer(InvocationOnMock theInvocation) throws Throwable {
-				FhirContext ctx = (FhirContext) theInvocation.getArguments()[ 0 ];
-				String system = (String) theInvocation.getArguments()[ 1 ];
-				String code = (String) theInvocation.getArguments()[ 2 ];
+				FhirContext ctx = (FhirContext) theInvocation.getArguments()[0];
+				String system = (String) theInvocation.getArguments()[1];
+				String code = (String) theInvocation.getArguments()[2];
 				CodeValidationResult retVal;
 				if (myValidConcepts.contains(system + "___" + code)) {
 					retVal = new CodeValidationResult(new ConceptDefinitionComponent(new CodeType(code)));
 				} else {
-					retVal = myDefaultValidationSupport.validateCode(ctx, system, code, (String) theInvocation.getArguments()[ 2 ]);
+					retVal = myDefaultValidationSupport.validateCode(ctx, system, code, (String) theInvocation.getArguments()[2]);
 				}
-				ourLog.debug("validateCode({}, {}, {}) : {}", new Object[] {system, code, (String) theInvocation.getArguments()[ 2 ], retVal});
+				ourLog.debug("validateCode({}, {}, {}) : {}", new Object[]{system, code, (String) theInvocation.getArguments()[2], retVal});
 				return retVal;
 			}
 		});
-		when(myMockSupport.fetchCodeSystem(any(FhirContext.class), any(String.class))).thenAnswer(new Answer<CodeSystem>() {
+		when(myMockSupport.fetchCodeSystem(nullable(FhirContext.class), nullable(String.class))).thenAnswer(new Answer<CodeSystem>() {
 			@Override
 			public CodeSystem answer(InvocationOnMock theInvocation) throws Throwable {
-				CodeSystem retVal = myDefaultValidationSupport.fetchCodeSystem((FhirContext) theInvocation.getArguments()[ 0 ], (String) theInvocation.getArguments()[ 1 ]);
-				ourLog.debug("fetchCodeSystem({}) : {}", new Object[] {(String) theInvocation.getArguments()[ 1 ], retVal});
+				CodeSystem retVal = myDefaultValidationSupport.fetchCodeSystem((FhirContext) theInvocation.getArguments()[0], (String) theInvocation.getArguments()[1]);
+				ourLog.debug("fetchCodeSystem({}) : {}", new Object[]{(String) theInvocation.getArguments()[1], retVal});
 				return retVal;
 			}
 		});
-		when(myMockSupport.fetchStructureDefinition(any(FhirContext.class), any(String.class))).thenAnswer(new Answer<StructureDefinition>() {
+		when(myMockSupport.fetchStructureDefinition(nullable(FhirContext.class), nullable(String.class))).thenAnswer(new Answer<StructureDefinition>() {
 			@Override
 			public StructureDefinition answer(InvocationOnMock theInvocation) throws Throwable {
-				StructureDefinition retVal = myDefaultValidationSupport.fetchStructureDefinition((FhirContext) theInvocation.getArguments()[ 0 ], (String) theInvocation.getArguments()[ 1 ]);
-				ourLog.debug("fetchStructureDefinition({}) : {}", new Object[] {(String) theInvocation.getArguments()[ 1 ], retVal});
+				StructureDefinition retVal = myDefaultValidationSupport.fetchStructureDefinition((FhirContext) theInvocation.getArguments()[0], (String) theInvocation.getArguments()[1]);
+				ourLog.debug("fetchStructureDefinition({}) : {}", new Object[]{(String) theInvocation.getArguments()[1], retVal});
 				return retVal;
 			}
 		});
-		when(myMockSupport.fetchAllStructureDefinitions(any(FhirContext.class))).thenAnswer(new Answer<List<StructureDefinition>>() {
+		when(myMockSupport.fetchAllStructureDefinitions(nullable(FhirContext.class))).thenAnswer(new Answer<List<StructureDefinition>>() {
 			@Override
 			public List<StructureDefinition> answer(InvocationOnMock theInvocation) throws Throwable {
-				List<StructureDefinition> retVal = myDefaultValidationSupport.fetchAllStructureDefinitions((FhirContext) theInvocation.getArguments()[ 0 ]);
-				ourLog.debug("fetchAllStructureDefinitions()", new Object[] {});
+				List<StructureDefinition> retVal = myDefaultValidationSupport.fetchAllStructureDefinitions((FhirContext) theInvocation.getArguments()[0]);
+				ourLog.debug("fetchAllStructureDefinitions()", new Object[]{});
 				return retVal;
 			}
 		});
@@ -187,12 +215,31 @@ public class FhirInstanceValidatorR4Test {
 		int index = 0;
 		for (SingleValidationMessage next : theOutput.getMessages()) {
 			ourLog.info("Result {}: {} - {}:{} {} - {}",
-				new Object[] {index, next.getSeverity(), defaultString(next.getLocationLine()), defaultString(next.getLocationCol()), next.getLocationString(), next.getMessage()});
+				new Object[]{index, next.getSeverity(), defaultString(next.getLocationLine()), defaultString(next.getLocationCol()), next.getLocationString(), next.getMessage()});
 			index++;
 
 			retVal.add(next);
 		}
 		return retVal;
+	}
+
+	@Test
+	public void testValidateCodeWithTailingSpace() {
+		Patient p = new Patient();
+		p
+			.getMaritalStatus()
+			.addCoding()
+			.setSystem("http://foo")
+			.setCode("AA  ");
+
+		FhirValidator val = ourCtx.newValidator();
+		val.registerValidatorModule(new FhirInstanceValidator(myDefaultValidationSupport));
+
+		ValidationResult result = val.validateWithResult(p);
+		List<SingleValidationMessage> all = logResultsAndReturnErrorOnes(result);
+		assertFalse(result.isSuccessful());
+		assertEquals("The code 'AA  ' is not valid (whitespace rules)", all.get(0).getMessage());
+
 	}
 
 	/**
@@ -201,7 +248,11 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateEmptyElement() {
 		String input = "<Patient xmlns=\"http://hl7.org/fhir\">" +
-			"<active value=\"\"/>" +
+			"  <text>\n" +
+			"    <status value=\"generated\"/>\n" +
+			"    <div xmlns=\"http://www.w3.org/1999/xhtml\">AAA</div>\n" +
+			"  </text>" +
+			"  <active value=\"\"/>" +
 			"</Patient>";
 
 		FhirValidator val = ourCtx.newValidator();
@@ -219,6 +270,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateDoesntEnforceBestPracticesByDefault() {
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		input.setStatus(ObservationStatus.AMENDED);
 		input.getCode().addCoding().setSystem("http://loinc.org").setCode("1234").setDisplay("FOO");
 
@@ -253,7 +305,7 @@ public class FhirInstanceValidatorR4Test {
 
 		int index = 0;
 		for (SingleValidationMessage next : theOutput.getMessages()) {
-			ourLog.info("Result {}: {} - {} - {}", new Object[] {index, next.getSeverity(), next.getLocationString(), next.getMessage()});
+			ourLog.info("Result {}: {} - {} - {}", new Object[]{index, next.getSeverity(), next.getLocationString(), next.getMessage()});
 			index++;
 
 			if (next.getSeverity() != ResultSeverityEnum.INFORMATION) {
@@ -269,7 +321,7 @@ public class FhirInstanceValidatorR4Test {
 
 		int index = 0;
 		for (SingleValidationMessage next : theOutput.getMessages()) {
-			ourLog.info("Result {}: {} - {} - {}", new Object[] {index, next.getSeverity(), next.getLocationString(), next.getMessage()});
+			ourLog.info("Result {}: {} - {} - {}", new Object[]{index, next.getSeverity(), next.getLocationString(), next.getMessage()});
 			index++;
 
 			if (next.getSeverity().ordinal() > ResultSeverityEnum.WARNING.ordinal()) {
@@ -282,12 +334,13 @@ public class FhirInstanceValidatorR4Test {
 
 	@Test
 	public void testBase64Invalid() {
-		Base64BinaryType value = new Base64BinaryType(new byte[] {2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+		Base64BinaryType value = new Base64BinaryType(new byte[]{2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2, 1});
 		Media med = new Media();
-		med.getContent().setContentType("LCws");
+		med.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
+		med.getContent().setContentType(Constants.CT_OCTET_STREAM);
 		med.getContent().setDataElement(value);
 		med.getContent().setTitle("bbbb syst");
-		med.setStatus(Media.MediaStatus.ABORTED);
+		med.setStatus(Media.MediaStatus.NOTDONE);
 		String encoded = ourCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(med);
 
 		encoded = encoded.replace(value.getValueAsString(), "%%%2@()()");
@@ -302,13 +355,23 @@ public class FhirInstanceValidatorR4Test {
 	}
 
 	@Test
+	public void testValidateBundleWithNoFullUrl() throws IOException {
+		String encoded = IOUtils.toString(FhirInstanceValidatorR4Test.class.getResourceAsStream("/r4/r4-caredove-bundle.json"));
+
+		ValidationResult output = myVal.validateWithResult(encoded);
+		List<SingleValidationMessage> errors = logResultsAndReturnNonInformationalOnes(output);
+		assertEquals(48, errors.size());
+	}
+
+	@Test
 	public void testBase64Valid() {
-		Base64BinaryType value = new Base64BinaryType(new byte[] {2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+		Base64BinaryType value = new Base64BinaryType(new byte[]{2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2, 1});
 		Media med = new Media();
-		med.getContent().setContentType("LCws");
+		med.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
+		med.getContent().setContentType(Constants.CT_OCTET_STREAM);
 		med.getContent().setDataElement(value);
 		med.getContent().setTitle("bbbb syst");
-		med.setStatus(Media.MediaStatus.ABORTED);
+		med.setStatus(Media.MediaStatus.NOTDONE);
 		String encoded = ourCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(med);
 
 		ourLog.info("Encoded: {}", encoded);
@@ -352,6 +415,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testContactPointSystemUrlWorks() {
 		Patient p = new Patient();
+		p.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		ContactPoint t = p.addTelecom();
 		t.setSystem(org.hl7.fhir.r4.model.ContactPoint.ContactPointSystem.URL);
 		t.setValue("http://infoway-inforoute.ca");
@@ -385,7 +449,8 @@ public class FhirInstanceValidatorR4Test {
 		String input = IOUtils.toString(FhirInstanceValidatorR4Test.class.getResourceAsStream("/r4/diagnosticreport-example-gingival-mass.json"), Constants.CHARSET_UTF8);
 		ValidationResult output = myVal.validateWithResult(input);
 		List<SingleValidationMessage> errors = logResultsAndReturnNonInformationalOnes(output);
-		assertEquals(0, errors.size());
+		assertEquals(1, errors.size());
+		assertEquals("Code http://loinc.org/1-8 was not validated because the code system is not present", errors.get(0).getMessage());
 	}
 
 	@Test
@@ -514,7 +579,7 @@ public class FhirInstanceValidatorR4Test {
 	public void testValidateProfileWithExtension() throws IOException, FHIRException {
 		PrePopulatedValidationSupport valSupport = new PrePopulatedValidationSupport();
 		DefaultProfileValidationSupport defaultSupport = new DefaultProfileValidationSupport();
-		ValidationSupportChain support = new ValidationSupportChain(valSupport, defaultSupport);
+		CachingValidationSupport support = new CachingValidationSupport(new ValidationSupportChain(valSupport, defaultSupport));
 
 		// Prepopulate SDs
 		valSupport.addStructureDefinition(loadStructureDefinition(defaultSupport, "/dstu3/myconsent-profile.xml"));
@@ -529,17 +594,17 @@ public class FhirInstanceValidatorR4Test {
 		//input.setScope(Consent.ConsentScope.ADR);
 		input.getScope()
 			.getCodingFirstRep()
-			.setSystem("http://hl7.org/fhir/consentscope")
+			.setSystem("http://terminology.hl7.org/CodeSystem/consentscope")
 			.setCode("adr");
 		input.addCategory()
 			.getCodingFirstRep()
-			.setSystem("http://hl7.org/fhir/consentcategorycodes")
+			.setSystem("http://terminology.hl7.org/CodeSystem/consentcategorycodes")
 			.setCode("acd");
 
 		// Should pass
 		ValidationResult output = val.validateWithResult(input);
 		List<SingleValidationMessage> all = logResultsAndReturnErrorOnes(output);
-		assertEquals(0, all.size());
+		assertEquals(all.toString(), 0, all.size());
 
 		// Now with the wrong datatype
 		input.getExtensionsByUrl("http://hl7.org/fhir/StructureDefinition/PruebaExtension").get(0).setValue(new CodeType("AAA"));
@@ -564,9 +629,14 @@ public class FhirInstanceValidatorR4Test {
 
 	@Test
 	public void testValidateRawJsonResource() {
-		//@formatter:off
-		String input = "{" + "\"resourceType\":\"Patient\"," + "\"id\":\"123\"" + "}";
-		//@formatter:on
+		String input = "{" +
+			"  \"resourceType\":\"Patient\"," +
+			"  \"text\": {\n" +
+			"    \"status\": \"generated\",\n" +
+			"    \"div\": \"<div xmlns=\\\"http://www.w3.org/1999/xhtml\\\"> </div>\"\n" +
+			"  },\n" +
+			"  \"id\":\"123\"" +
+			"}";
 
 		ValidationResult output = myVal.validateWithResult(input);
 		assertEquals(output.toString(), 0, output.getMessages().size());
@@ -574,14 +644,16 @@ public class FhirInstanceValidatorR4Test {
 
 	@Test
 	public void testValidateRawJsonResourceBadAttributes() {
-		//@formatter:off
 		String input =
 			"{" +
 				"\"resourceType\":\"Patient\"," +
+				"  \"text\": {\n" +
+				"    \"status\": \"generated\",\n" +
+				"    \"div\": \"<div xmlns=\\\"http://www.w3.org/1999/xhtml\\\"> </div>\"\n" +
+				"  },\n" +
 				"\"id\":\"123\"," +
 				"\"foo\":\"123\"" +
 				"}";
-		//@formatter:on
 
 		ValidationResult output = myVal.validateWithResult(input);
 		assertEquals(output.toString(), 1, output.getMessages().size());
@@ -612,6 +684,7 @@ public class FhirInstanceValidatorR4Test {
 
 		Patient patient = new Patient();
 		patient.setId("1");
+		patient.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 
 		Extension ext = patient.addExtension();
 		ext.setUrl("http://hl7.org/fhir/v3/ethnicity");
@@ -644,6 +717,7 @@ public class FhirInstanceValidatorR4Test {
 	public void testValidateRawJsonResourceWithUnknownExtensionNotAllowed() {
 
 		Patient patient = new Patient();
+		patient.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		patient.setId("1");
 
 		Extension ext = patient.addExtension();
@@ -676,9 +750,13 @@ public class FhirInstanceValidatorR4Test {
 
 	@Test
 	public void testValidateRawXmlResource() {
-		// @formatter:off
-		String input = "<Patient xmlns=\"http://hl7.org/fhir\">" + "<id value=\"123\"/>" + "</Patient>";
-		// @formatter:on
+		String input = "<Patient xmlns=\"http://hl7.org/fhir\">" +
+			"<id value=\"123\"/>" +
+			"  <text>\n" +
+			"    <status value=\"generated\"/>\n" +
+			"    <div xmlns=\"http://www.w3.org/1999/xhtml\">AAA</div>\n" +
+			"  </text>" +
+			"</Patient>";
 
 		ValidationResult output = myVal.validateWithResult(input);
 		assertEquals(output.toString(), 0, output.getMessages().size());
@@ -686,10 +764,15 @@ public class FhirInstanceValidatorR4Test {
 
 	@Test
 	public void testValidateRawXmlResourceBadAttributes() {
-		//@formatter:off
-		String input = "<Patient xmlns=\"http://hl7.org/fhir\">" + "<id value=\"123\"/>" + "<foo value=\"222\"/>"
-			+ "</Patient>";
-		//@formatter:on
+		String input =
+			"<Patient xmlns=\"http://hl7.org/fhir\">" +
+				"<id value=\"123\"/>" +
+				"  <text>\n" +
+				"    <status value=\"generated\"/>\n" +
+				"    <div xmlns=\"http://www.w3.org/1999/xhtml\">AAA</div>\n" +
+				"  </text>" +
+				"<foo value=\"222\"/>" +
+				"</Patient>";
 
 		ValidationResult output = myVal.validateWithResult(input);
 		assertEquals(output.toString(), 1, output.getMessages().size());
@@ -701,16 +784,20 @@ public class FhirInstanceValidatorR4Test {
 
 	@Test
 	public void testValidateRawXmlResourceWithEmptyPrimitive() {
-		// @formatter:off
-		String input = "<Patient xmlns=\"http://hl7.org/fhir\"><name><given/></name></Patient>";
-		// @formatter:on
+		String input = "<Patient xmlns=\"http://hl7.org/fhir\">" +
+			"  <text>\n" +
+			"    <status value=\"generated\"/>\n" +
+			"    <div xmlns=\"http://www.w3.org/1999/xhtml\">AAA</div>\n" +
+			"  </text>" +
+			"<name><given/></name>" +
+			"</Patient>";
 
 		ValidationResult output = myVal.validateWithResult(input);
 		List<SingleValidationMessage> messages = logResultsAndReturnNonInformationalOnes(output);
 		assertEquals(output.toString(), 3, messages.size());
 		assertThat(messages.get(0).getMessage(), containsString("Element must have some content"));
 		assertThat(messages.get(1).getMessage(), containsString("primitive types must have a value or must have child extensions"));
-		assertThat(messages.get(2).getMessage(), containsString("All FHIR elements must have a @value or children [hasValue() | (children().count() > id.count())]"));
+		assertThat(messages.get(2).getMessage(), containsString("All FHIR elements must have a @value or children [hasValue() or (children().count() > id.count())]"));
 	}
 
 	@Test
@@ -718,6 +805,11 @@ public class FhirInstanceValidatorR4Test {
 		// @formatter:off
 		String input = "<ActivityDefinition xmlns=\"http://hl7.org/fhir\">\n" +
 			"                        <id value=\"referralToMentalHealthCare\"/>\n" +
+			"  <text>\n" +
+			"    <status value=\"generated\"/>\n" +
+			"    <div xmlns=\"http://www.w3.org/1999/xhtml\">AAA</div>\n" +
+			"  </text>" +
+			"                        <name value=\"AAAAA\"/>\n" +
 			"                        <status value=\"draft\"/>\n" +
 			"                        <description value=\"refer to primary care mental-health integrated care program for evaluation and treatment of mental health conditions now\"/>\n" +
 			"                        <code>\n" +
@@ -774,6 +866,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateReferenceWithDisplayValid() throws Exception {
 		Patient p = new Patient();
+		p.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		p.getManagingOrganization().setDisplay("HELLO");
 
 		ValidationResult output = myVal.validateWithResult(p);
@@ -787,6 +880,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateReferenceWithIdentifierValid() throws Exception {
 		Patient p = new Patient();
+		p.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		p.getManagingOrganization().getIdentifier().setSystem("http://acme.org");
 		p.getManagingOrganization().getIdentifier().setValue("foo");
 
@@ -806,22 +900,12 @@ public class FhirInstanceValidatorR4Test {
 		 * and therefore should validate
 		 */
 		RelatedPerson rp = new RelatedPerson();
+		rp.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		rp.getPatient().setReference("Patient/1");
-		rp.addRelationship().addCoding().setSystem("http://hl7.org/fhir/v2/0131").setCode("c");
+		rp.addRelationship().addCoding().setSystem("http://terminology.hl7.org/CodeSystem/v2-0131").setCode("C");
 
 		ValidationResult results = myVal.validateWithResult(rp);
 		List<SingleValidationMessage> outcome = logResultsAndReturnNonInformationalOnes(results);
-		assertThat(outcome, empty());
-
-		/*
-		 * Code system is case insensitive, so try with capital C
-		 */
-		rp = new RelatedPerson();
-		rp.getPatient().setReference("Patient/1");
-		rp.addRelationship().addCoding().setSystem("http://hl7.org/fhir/v2/0131").setCode("C");
-
-		results = myVal.validateWithResult(rp);
-		outcome = logResultsAndReturnNonInformationalOnes(results);
 		assertThat(outcome, empty());
 
 		/*
@@ -829,7 +913,7 @@ public class FhirInstanceValidatorR4Test {
 		 */
 		rp = new RelatedPerson();
 		rp.getPatient().setReference("Patient/1");
-		rp.addRelationship().addCoding().setSystem("http://hl7.org/fhir/v2/0131").setCode("GAGAGAGA");
+		rp.addRelationship().addCoding().setSystem("http://terminology.hl7.org/CodeSystem/v2-0131").setCode("GAGAGAGA");
 
 		results = myVal.validateWithResult(rp);
 		outcome = logResultsAndReturnNonInformationalOnes(results);
@@ -845,7 +929,7 @@ public class FhirInstanceValidatorR4Test {
 		// input.getMeta().addProfile("http://hl7.org/fhir/StructureDefinition/devicemetricobservation");
 
 		input.addIdentifier().setSystem("http://acme").setValue("12345");
-		input.getContext().setReference("http://foo.com/Encounter/9");
+		input.getEncounter().setReference("http://foo.com/Encounter/9");
 		input.setStatus(ObservationStatus.FINAL);
 		input.getCode().addCoding().setSystem("http://loinc.org").setCode("12345");
 
@@ -862,10 +946,11 @@ public class FhirInstanceValidatorR4Test {
 		addValidConcept("http://loinc.org", "12345");
 
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		input.getMeta().addProfile("http://hl7.org/fhir/StructureDefinition/devicemetricobservation");
 
 		input.addIdentifier().setSystem("http://acme").setValue("12345");
-		input.getContext().setReference("http://foo.com/Encounter/9");
+		input.getEncounter().setReference("http://foo.com/Encounter/9");
 		input.setStatus(ObservationStatus.FINAL);
 		input.getCode().addCoding().setSystem("http://loinc.org").setCode("12345");
 
@@ -874,7 +959,7 @@ public class FhirInstanceValidatorR4Test {
 		List<SingleValidationMessage> errors = logResultsAndReturnNonInformationalOnes(output);
 
 		assertThat(errors.toString(), containsString("Element 'Observation.subject': minimum required = 1, but only found 0"));
-		assertThat(errors.toString(), containsString("Element 'Observation.context': max allowed = 0, but found 1"));
+		assertThat(errors.toString(), containsString("Element 'Observation.encounter': max allowed = 0, but found 1"));
 		assertThat(errors.toString(), containsString("Element 'Observation.device': minimum required = 1, but only found 0"));
 		assertThat(errors.toString(), containsString(""));
 	}
@@ -884,7 +969,8 @@ public class FhirInstanceValidatorR4Test {
 		addValidConcept("http://loinc.org", "12345");
 
 		Observation input = new Observation();
-		input.getMeta().addProfile("http://foo/myprofile");
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
+		input.getMeta().addProfile("http://foo/structuredefinition/myprofile");
 
 		input.getCode().addCoding().setSystem("http://loinc.org").setCode("12345");
 		input.setStatus(ObservationStatus.FINAL);
@@ -893,12 +979,13 @@ public class FhirInstanceValidatorR4Test {
 		ValidationResult output = myVal.validateWithResult(input);
 		List<SingleValidationMessage> errors = logResultsAndReturnNonInformationalOnes(output);
 		assertEquals(errors.toString(), 1, errors.size());
-		assertEquals("StructureDefinition reference \"http://foo/myprofile\" could not be resolved", errors.get(0).getMessage());
+		assertEquals("StructureDefinition reference \"http://foo/structuredefinition/myprofile\" could not be resolved", errors.get(0).getMessage());
 	}
 
 	@Test
 	public void testValidateResourceFailingInvariant() {
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 
 		// Has a value, but not a status (which is required)
 		input.getCode().addCoding().setSystem("http://loinc.org").setCode("12345");
@@ -914,6 +1001,7 @@ public class FhirInstanceValidatorR4Test {
 	public void testValidateResourceWithDefaultValueset() {
 		Observation input = new Observation();
 
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 		input.setStatus(ObservationStatus.FINAL);
 		input.getCode().setText("No code here!");
 
@@ -925,15 +1013,17 @@ public class FhirInstanceValidatorR4Test {
 
 	@Test
 	public void testValidateResourceWithDefaultValuesetBadCode() {
-		//@formatter:off
 		String input =
 			"<Observation xmlns=\"http://hl7.org/fhir\">\n" +
+				"  <text>\n" +
+				"    <status value=\"generated\"/>\n" +
+				"    <div xmlns=\"http://www.w3.org/1999/xhtml\">AAA</div>\n" +
+				"  </text>" +
 				"   <status value=\"notvalidcode\"/>\n" +
 				"   <code>\n" +
 				"      <text value=\"No code here!\"/>\n" +
 				"   </code>\n" +
 				"</Observation>";
-		//@formatter:on
 		ValidationResult output = myVal.validateWithResult(input);
 		logResultsAndReturnAll(output);
 		assertEquals(
@@ -944,6 +1034,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateResourceWithExampleBindingCodeValidationFailing() {
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 
 		myInstanceVal.setValidationSupport(myMockSupport);
 
@@ -959,6 +1050,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateResourceWithExampleBindingCodeValidationFailingNonLoinc() {
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 
 		myInstanceVal.setValidationSupport(myMockSupport);
 		addValidConcept("http://acme.org", "12345");
@@ -976,6 +1068,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateResourceWithExampleBindingCodeValidationPassingLoinc() {
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 
 		myInstanceVal.setValidationSupport(myMockSupport);
 		addValidConcept("http://loinc.org", "12345");
@@ -991,6 +1084,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateResourceWithExampleBindingCodeValidationPassingLoincWithExpansion() {
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 
 		ValueSetExpansionComponent expansionComponent = new ValueSetExpansionComponent();
 		expansionComponent.addContains().setSystem("http://loinc.org").setCode("12345").setDisplay("Some display code");
@@ -1011,6 +1105,7 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateResourceWithExampleBindingCodeValidationPassingNonLoinc() {
 		Observation input = new Observation();
+		input.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
 
 		myInstanceVal.setValidationSupport(myMockSupport);
 		addValidConcept("http://acme.org", "12345");
@@ -1026,15 +1121,16 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateResourceWithValuesetExpansionBad() {
 
-		Patient patient = new Patient();
-		patient.addIdentifier().setSystem("http://example.com/").setValue("12345").getType().addCoding().setSystem("http://example.com/foo/bar").setCode("bar");
+		Patient p = new Patient();
+		p.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
+		p.addIdentifier().setSystem("http://example.com/").setValue("12345").getType().addCoding().setSystem("http://example.com/foo/bar").setCode("bar");
 
-		ValidationResult output = myVal.validateWithResult(patient);
+		ValidationResult output = myVal.validateWithResult(p);
 		List<SingleValidationMessage> all = logResultsAndReturnAll(output);
 		assertEquals(1, all.size());
 		assertEquals("Patient.identifier.type", all.get(0).getLocationString());
 		assertEquals(
-			"None of the codes provided are in the value set http://hl7.org/fhir/ValueSet/identifier-type (http://hl7.org/fhir/ValueSet/identifier-type, and a code should come from this value set unless it has no suitable code) (codes = http://example.com/foo/bar#bar)",
+			"Code http://example.com/foo/bar/bar was not validated because the code system is not present",
 			all.get(0).getMessage());
 		assertEquals(ResultSeverityEnum.WARNING, all.get(0).getSeverity());
 
@@ -1061,7 +1157,15 @@ public class FhirInstanceValidatorR4Test {
 	@Test
 	public void testValidateResourceWithValuesetExpansionGood() {
 		Patient patient = new Patient();
-		patient.addIdentifier().setSystem("http://system").setValue("12345").getType().addCoding().setSystem("http://hl7.org/fhir/v2/0203").setCode("MR");
+		patient.getText().setDiv(new XhtmlNode().setValue("<div>AA</div>")).setStatus(Narrative.NarrativeStatus.GENERATED);
+		patient
+			.addIdentifier()
+			.setSystem("http://system")
+			.setValue("12345")
+			.getType()
+			.addCoding()
+			.setSystem("http://terminology.hl7.org/CodeSystem/v2-0203")
+			.setCode("MR");
 
 		ValidationResult output = myVal.validateWithResult(patient);
 		List<SingleValidationMessage> all = logResultsAndReturnAll(output);

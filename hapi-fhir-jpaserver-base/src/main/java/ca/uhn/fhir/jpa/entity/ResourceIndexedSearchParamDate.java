@@ -24,6 +24,7 @@ import ca.uhn.fhir.model.api.IQueryParameterType;
 import ca.uhn.fhir.model.api.TemporalPrecisionEnum;
 import ca.uhn.fhir.model.primitive.InstantDt;
 import ca.uhn.fhir.rest.param.DateParam;
+import ca.uhn.fhir.rest.param.DateRangeParam;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
@@ -37,17 +38,14 @@ import java.util.Date;
 @Embeddable
 @Entity
 @Table(name = "HFJ_SPIDX_DATE", indexes = {
-	@Index(name = "IDX_SP_DATE", columnList = "RES_TYPE,SP_NAME,SP_VALUE_LOW,SP_VALUE_HIGH"),
+	// We previously had an index called IDX_SP_DATE - Dont reuse
+	@Index(name = "IDX_SP_DATE_HASH", columnList = "HASH_IDENTITY,SP_VALUE_LOW,SP_VALUE_HIGH"),
 	@Index(name = "IDX_SP_DATE_UPDATED", columnList = "SP_UPDATED"),
 	@Index(name = "IDX_SP_DATE_RESID", columnList = "RES_ID")
 })
 public class ResourceIndexedSearchParamDate extends BaseResourceIndexedSearchParam {
 
 	private static final long serialVersionUID = 1L;
-
-	@Transient
-	private transient String myOriginalValue;
-
 	@Column(name = "SP_VALUE_HIGH", nullable = true)
 	@Temporal(TemporalType.TIMESTAMP)
 	@Field
@@ -56,16 +54,24 @@ public class ResourceIndexedSearchParamDate extends BaseResourceIndexedSearchPar
 	@Temporal(TemporalType.TIMESTAMP)
 	@Field
 	public Date myValueLow;
+	@Transient
+	private transient String myOriginalValue;
 	@Id
 	@SequenceGenerator(name = "SEQ_SPIDX_DATE", sequenceName = "SEQ_SPIDX_DATE")
 	@GeneratedValue(strategy = GenerationType.AUTO, generator = "SEQ_SPIDX_DATE")
 	@Column(name = "SP_ID")
 	private Long myId;
+	/**
+	 * @since 3.5.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_IDENTITY", nullable = true)
+	private Long myHashIdentity;
 
 	/**
 	 * Constructor
 	 */
 	public ResourceIndexedSearchParamDate() {
+		super();
 	}
 
 	/**
@@ -76,6 +82,21 @@ public class ResourceIndexedSearchParamDate extends BaseResourceIndexedSearchPar
 		setValueLow(theLow);
 		setValueHigh(theHigh);
 		myOriginalValue = theOriginalValue;
+	}
+
+	@Override
+	@PrePersist
+	public void calculateHashes() {
+		if (myHashIdentity == null) {
+			String resourceType = getResourceType();
+			String paramName = getParamName();
+			setHashIdentity(calculateHashIdentity(resourceType, paramName));
+		}
+	}
+
+	@Override
+	protected void clearHashes() {
+		myHashIdentity = null;
 	}
 
 	@Override
@@ -96,7 +117,21 @@ public class ResourceIndexedSearchParamDate extends BaseResourceIndexedSearchPar
 		b.append(getResource(), obj.getResource());
 		b.append(getTimeFromDate(getValueHigh()), getTimeFromDate(obj.getValueHigh()));
 		b.append(getTimeFromDate(getValueLow()), getTimeFromDate(obj.getValueLow()));
+		b.append(getHashIdentity(), obj.getHashIdentity());
 		return b.isEquals();
+	}
+
+	public Long getHashIdentity() {
+		return myHashIdentity;
+	}
+
+	public void setHashIdentity(Long theHashIdentity) {
+		myHashIdentity = theHashIdentity;
+	}
+
+	@Override
+	protected Long getId() {
+		return myId;
 	}
 
 	protected Long getTimeFromDate(Date date) {
@@ -104,11 +139,6 @@ public class ResourceIndexedSearchParamDate extends BaseResourceIndexedSearchPar
 			return date.getTime();
 		}
 		return null;
-	}
-
-	@Override
-	protected Long getId() {
-		return myId;
 	}
 
 	public Date getValueHigh() {
@@ -154,5 +184,32 @@ public class ResourceIndexedSearchParamDate extends BaseResourceIndexedSearchPar
 		b.append("valueLow", new InstantDt(getValueLow()));
 		b.append("valueHigh", new InstantDt(getValueHigh()));
 		return b.build();
+	}
+
+	@Override
+	public boolean matches(IQueryParameterType theParam) {
+		if (!(theParam instanceof DateParam)) {
+			return false;
+		}
+		DateParam date = (DateParam) theParam;
+		DateRangeParam range = new DateRangeParam(date);
+		Date lowerBound = range.getLowerBoundAsInstant();
+		Date upperBound = range.getUpperBoundAsInstant();
+
+		if (lowerBound == null && upperBound == null) {
+			// should never happen
+			return false;
+		}
+
+		boolean result = true;
+		if (lowerBound != null) {
+			result &= (myValueLow.after(lowerBound) || myValueLow.equals(lowerBound));
+			result &= (myValueHigh.after(lowerBound) || myValueHigh.equals(lowerBound));
+		}
+		if (upperBound != null) {
+			result &= (myValueLow.before(upperBound) || myValueLow.equals(upperBound));
+			result &= (myValueHigh.before(upperBound) || myValueHigh.equals(upperBound));
+		}
+		return result;
 	}
 }

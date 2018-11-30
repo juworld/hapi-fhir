@@ -2,7 +2,6 @@ package ca.uhn.fhir.jpa.term;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.jpa.dao.IFhirResourceDao;
-import ca.uhn.fhir.jpa.dao.data.ITermCodeSystemDao;
 import ca.uhn.fhir.jpa.entity.TermConcept;
 import ca.uhn.fhir.util.CoverageIgnore;
 import ca.uhn.fhir.util.UrlUtil;
@@ -15,14 +14,11 @@ import org.hl7.fhir.r4.model.ConceptMap;
 import org.hl7.fhir.r4.model.StructureDefinition;
 import org.hl7.fhir.r4.model.ValueSet;
 import org.hl7.fhir.r4.model.ValueSet.ConceptSetComponent;
-import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionComponent;
+import org.hl7.fhir.r4.terminologies.ValueSetExpander;
 import org.hl7.fhir.utilities.validation.ValidationMessage.IssueSeverity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 
-import javax.persistence.EntityManager;
-import javax.persistence.PersistenceContext;
-import javax.persistence.PersistenceContextType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,10 +48,6 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 public class HapiTerminologySvcR4 extends BaseHapiTerminologySvcImpl implements IHapiTerminologySvcR4 {
 	@Autowired
-	protected ITermCodeSystemDao myCodeSystemDao;
-	@PersistenceContext(type = PersistenceContextType.TRANSACTION)
-	protected EntityManager myEntityManager;
-	@Autowired
 	@Qualifier("myConceptMapDaoR4")
 	private IFhirResourceDao<ConceptMap> myConceptMapResourceDao;
 	@Autowired
@@ -68,8 +60,6 @@ public class HapiTerminologySvcR4 extends BaseHapiTerminologySvcImpl implements 
 	private IValidationSupport myValidationSupport;
 	@Autowired
 	private IHapiTerminologySvc myTerminologySvc;
-	@Autowired
-	private FhirContext myContext;
 
 	private void addAllChildren(String theSystemString, ConceptDefinitionComponent theCode, List<VersionIndependentConcept> theListToPopulate) {
 		if (isNotBlank(theCode.getCode())) {
@@ -135,10 +125,18 @@ public class HapiTerminologySvcR4 extends BaseHapiTerminologySvcImpl implements 
 	}
 
 	@Override
-	public ValueSetExpansionComponent expandValueSet(FhirContext theContext, ConceptSetComponent theInclude) {
+	public IBaseResource expandValueSet(IBaseResource theInput) {
+		ValueSet valueSetToExpand = (ValueSet) theInput;
+		return super.expandValueSet(valueSetToExpand);
+	}
+
+
+	@Override
+	public ValueSetExpander.ValueSetExpansionOutcome expandValueSet(FhirContext theContext, ConceptSetComponent theInclude) {
 		ValueSet valueSetToExpand = new ValueSet();
 		valueSetToExpand.getCompose().addInclude(theInclude);
-		return super.expandValueSet(valueSetToExpand).getExpansion();
+		ValueSet expanded = super.expandValueSet(valueSetToExpand);
+		return new ValueSetExpander.ValueSetExpansionOutcome(expanded);
 	}
 
 	@Override

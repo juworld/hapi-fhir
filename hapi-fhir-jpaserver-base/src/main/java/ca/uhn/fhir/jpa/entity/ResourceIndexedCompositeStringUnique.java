@@ -32,7 +32,7 @@ import javax.persistence.*;
 })
 public class ResourceIndexedCompositeStringUnique implements Comparable<ResourceIndexedCompositeStringUnique> {
 
-	public static final int MAX_STRING_LENGTH = 150;
+	public static final int MAX_STRING_LENGTH = 200;
 	public static final String IDX_IDXCMPSTRUNIQ_STRING = "IDX_IDXCMPSTRUNIQ_STRING";
 	public static final String IDX_IDXCMPSTRUNIQ_RESOURCE = "IDX_IDXCMPSTRUNIQ_RESOURCE";
 
@@ -41,7 +41,6 @@ public class ResourceIndexedCompositeStringUnique implements Comparable<Resource
 	@Id
 	@Column(name = "PID")
 	private Long myId;
-
 	@ManyToOne
 	@JoinColumn(name = "RES_ID", referencedColumnName = "RES_ID", foreignKey = @ForeignKey(name = "FK_IDXCMPSTRUNIQ_RES_ID"))
 	private ResourceTable myResource;

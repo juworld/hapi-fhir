@@ -12,7 +12,6 @@ import ca.uhn.fhirtest.interceptor.PublicSecurityInterceptor;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.lang3.time.DateUtils;
 import org.hibernate.dialect.PostgreSQL94Dialect;
-import org.hibernate.jpa.HibernatePersistenceProvider;
 import org.springframework.beans.factory.annotation.Autowire;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -33,7 +32,7 @@ import java.util.Properties;
 @EnableTransactionManagement()
 public class TestR4Config extends BaseJavaConfigR4 {
 	public static final String FHIR_DB_USERNAME = "${fhir.db.username}";
-	public  static final String FHIR_DB_PASSWORD = "${fhir.db.password}";
+	public static final String FHIR_DB_PASSWORD = "${fhir.db.password}";
 	public static final String FHIR_LUCENE_LOCATION_R4 = "${fhir.lucene.location.r4}";
 	public static final Integer COUNT_SEARCH_RESULTS_UP_TO = 50000;
 
@@ -60,6 +59,7 @@ public class TestR4Config extends BaseJavaConfigR4 {
 		retVal.setIndexMissingFields(DaoConfig.IndexEnabledEnum.ENABLED);
 		retVal.setCountSearchResultsUpTo(TestR4Config.COUNT_SEARCH_RESULTS_UP_TO);
 		retVal.setFetchSizeDefaultMaximum(10000);
+		retVal.setExpungeEnabled(true);
 		return retVal;
 	}
 
@@ -74,6 +74,7 @@ public class TestR4Config extends BaseJavaConfigR4 {
 		}
 		retVal.setUsername(myDbUsername);
 		retVal.setPassword(myDbPassword);
+		retVal.setDefaultQueryTimeout(20);
 		return retVal;
 	}
 
@@ -86,6 +87,7 @@ public class TestR4Config extends BaseJavaConfigR4 {
 		return retVal;
 	}
 
+	@Override
 	@Bean()
 	public LocalContainerEntityManagerFactoryBean entityManagerFactory() {
 		LocalContainerEntityManagerFactoryBean retVal = super.entityManagerFactory();
@@ -152,4 +154,7 @@ public class TestR4Config extends BaseJavaConfigR4 {
 	public static PropertySourcesPlaceholderConfigurer propertySourcesPlaceholderConfigurer() {
 		return new PropertySourcesPlaceholderConfigurer();
 	}
+
+
+
 }

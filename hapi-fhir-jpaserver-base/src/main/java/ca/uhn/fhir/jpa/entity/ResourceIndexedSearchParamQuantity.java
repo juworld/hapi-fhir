@@ -38,11 +38,13 @@ import java.math.BigDecimal;
 @Embeddable
 @Entity
 @Table(name = "HFJ_SPIDX_QUANTITY", indexes = {
-	@Index(name = "IDX_SP_QUANTITY", columnList = "RES_TYPE,SP_NAME,SP_SYSTEM,SP_UNITS,SP_VALUE"),
+//	We used to have an index named IDX_SP_QUANTITY - Dont reuse
+	@Index(name = "IDX_SP_QUANTITY_HASH", columnList = "HASH_IDENTITY,SP_VALUE"),
+	@Index(name = "IDX_SP_QUANTITY_HASH_UN", columnList = "HASH_IDENTITY_AND_UNITS,SP_VALUE"),
+	@Index(name = "IDX_SP_QUANTITY_HASH_SYSUN", columnList = "HASH_IDENTITY_SYS_UNITS,SP_VALUE"),
 	@Index(name = "IDX_SP_QUANTITY_UPDATED", columnList = "SP_UPDATED"),
 	@Index(name = "IDX_SP_QUANTITY_RESID", columnList = "RES_ID")
 })
-//@formatter:on
 public class ResourceIndexedSearchParamQuantity extends BaseResourceIndexedSearchParam {
 
 	private static final int MAX_LENGTH = 200;
@@ -64,16 +66,53 @@ public class ResourceIndexedSearchParamQuantity extends BaseResourceIndexedSearc
 	@GeneratedValue(strategy = GenerationType.AUTO, generator = "SEQ_SPIDX_QUANTITY")
 	@Column(name = "SP_ID")
 	private Long myId;
+	/**
+	 * @since 3.5.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_IDENTITY_AND_UNITS", nullable = true)
+	private Long myHashIdentityAndUnits;
+	/**
+	 * @since 3.5.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_IDENTITY_SYS_UNITS", nullable = true)
+	private Long myHashIdentitySystemAndUnits;
+	/**
+	 * @since 3.5.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_IDENTITY", nullable = true)
+	private Long myHashIdentity;
 
 	public ResourceIndexedSearchParamQuantity() {
-		// nothing
+		super();
 	}
 
+
 	public ResourceIndexedSearchParamQuantity(String theParamName, BigDecimal theValue, String theSystem, String theUnits) {
+		this();
 		setParamName(theParamName);
 		setSystem(theSystem);
 		setValue(theValue);
 		setUnits(theUnits);
+	}
+
+	@Override
+	@PrePersist
+	public void calculateHashes() {
+		if (myHashIdentity == null) {
+			String resourceType = getResourceType();
+			String paramName = getParamName();
+			String units = getUnits();
+			String system = getSystem();
+			setHashIdentity(calculateHashIdentity(resourceType, paramName));
+			setHashIdentityAndUnits(calculateHashUnits(resourceType, paramName, units));
+			setHashIdentitySystemAndUnits(calculateHashSystemAndUnits(resourceType, paramName, system, units));
+		}
+	}
+
+	@Override
+	protected void clearHashes() {
+		myHashIdentity = null;
+		myHashIdentityAndUnits = null;
 	}
 
 	@Override
@@ -94,7 +133,36 @@ public class ResourceIndexedSearchParamQuantity extends BaseResourceIndexedSearc
 		b.append(getSystem(), obj.getSystem());
 		b.append(getUnits(), obj.getUnits());
 		b.append(getValue(), obj.getValue());
+		b.append(getHashIdentity(), obj.getHashIdentity());
+		b.append(getHashIdentitySystemAndUnits(), obj.getHashIdentitySystemAndUnits());
+		b.append(getHashIdentityAndUnits(), obj.getHashIdentityAndUnits());
 		return b.isEquals();
+	}
+
+	public Long getHashIdentity() {
+		calculateHashes();
+		return myHashIdentity;
+	}
+
+	public void setHashIdentity(Long theHashIdentity) {
+		myHashIdentity = theHashIdentity;
+	}
+
+	public Long getHashIdentityAndUnits() {
+		calculateHashes();
+		return myHashIdentityAndUnits;
+	}
+
+	public void setHashIdentityAndUnits(Long theHashIdentityAndUnits) {
+		myHashIdentityAndUnits = theHashIdentityAndUnits;
+	}
+
+	private Long getHashIdentitySystemAndUnits() {
+		return myHashIdentitySystemAndUnits;
+	}
+
+	public void setHashIdentitySystemAndUnits(Long theHashIdentitySystemAndUnits) {
+		myHashIdentitySystemAndUnits = theHashIdentitySystemAndUnits;
 	}
 
 	@Override
@@ -107,6 +175,7 @@ public class ResourceIndexedSearchParamQuantity extends BaseResourceIndexedSearc
 	}
 
 	public void setSystem(String theSystem) {
+		clearHashes();
 		mySystem = theSystem;
 	}
 
@@ -115,6 +184,7 @@ public class ResourceIndexedSearchParamQuantity extends BaseResourceIndexedSearc
 	}
 
 	public void setUnits(String theUnits) {
+		clearHashes();
 		myUnits = theUnits;
 	}
 
@@ -123,14 +193,16 @@ public class ResourceIndexedSearchParamQuantity extends BaseResourceIndexedSearc
 	}
 
 	public void setValue(BigDecimal theValue) {
+		clearHashes();
 		myValue = theValue;
 	}
 
 	@Override
 	public int hashCode() {
+		calculateHashes();
 		HashCodeBuilder b = new HashCodeBuilder();
+		b.append(getResourceType());
 		b.append(getParamName());
-		b.append(getResource());
 		b.append(getSystem());
 		b.append(getUnits());
 		b.append(getValue());
@@ -150,7 +222,50 @@ public class ResourceIndexedSearchParamQuantity extends BaseResourceIndexedSearc
 		b.append("system", getSystem());
 		b.append("units", getUnits());
 		b.append("value", getValue());
+		b.append("missing", isMissing());
+		b.append("hashIdentitySystemAndUnits", myHashIdentitySystemAndUnits);
 		return b.build();
+	}
+
+	public static long calculateHashSystemAndUnits(String theResourceType, String theParamName, String theSystem, String theUnits) {
+		return hash(theResourceType, theParamName, theSystem, theUnits);
+	}
+
+	public static long calculateHashUnits(String theResourceType, String theParamName, String theUnits) {
+		return hash(theResourceType, theParamName, theUnits);
+	}
+
+	@Override
+	public boolean matches(IQueryParameterType theParam) {
+		if (!(theParam instanceof QuantityParam)) {
+			return false;
+		}
+		QuantityParam quantity = (QuantityParam)theParam;
+		boolean retval = false;
+
+		// Only match on system if it wasn't specified
+		if (quantity.getSystem() == null && quantity.getUnits() == null) {
+			if (getValue().equals(quantity.getValue())) {
+				retval = true;
+			}
+		} else if (quantity.getSystem() == null) {
+			if (getUnits().equalsIgnoreCase(quantity.getUnits()) &&
+				getValue().equals(quantity.getValue())) {
+				retval = true;
+			}
+		} else if (quantity.getUnits() == null) {
+			if (getSystem().equalsIgnoreCase(quantity.getSystem()) &&
+				getValue().equals(quantity.getValue())) {
+				retval = true;
+			}
+		} else {
+			if (getSystem().equalsIgnoreCase(quantity.getSystem()) &&
+				getUnits().equalsIgnoreCase(quantity.getUnits()) &&
+				getValue().equals(quantity.getValue())) {
+				retval = true;
+			}
+		}
+		return retval;
 	}
 
 }

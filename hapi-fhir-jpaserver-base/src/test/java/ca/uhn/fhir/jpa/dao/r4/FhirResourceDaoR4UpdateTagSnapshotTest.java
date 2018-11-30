@@ -10,7 +10,7 @@ import org.junit.AfterClass;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 public class FhirResourceDaoR4UpdateTagSnapshotTest extends BaseJpaR4Test {
@@ -39,9 +39,7 @@ public class FhirResourceDaoR4UpdateTagSnapshotTest extends BaseJpaR4Test {
 		myPatientDao.update(p, mySrd);
 
 		p = myPatientDao.read(new IdType("A"), mySrd);
-		// It would be nice if this didn't trigger a version update but
-		// i guess it's not so bad that it does
-		assertEquals("2", p.getIdElement().getVersionIdPart());
+		assertEquals("1", p.getIdElement().getVersionIdPart());
 		assertEquals(true, p.getActive());
 		assertEquals(1, p.getMeta().getTag().size());
 	}
@@ -86,9 +84,7 @@ public class FhirResourceDaoR4UpdateTagSnapshotTest extends BaseJpaR4Test {
 		myPatientDao.update(p, mySrd);
 
 		p = myPatientDao.read(new IdType("A"), mySrd);
-		// It would be nice if this didn't trigger a version update but
-		// i guess it's not so bad that it does
-		assertEquals("2", p.getIdElement().getVersionIdPart());
+		assertEquals("1", p.getIdElement().getVersionIdPart());
 		assertEquals(true, p.getActive());
 		assertEquals(1, p.getMeta().getTag().size());
 		assertEquals("urn:foo", p.getMeta().getTag().get(0).getSystem());
@@ -136,9 +132,7 @@ public class FhirResourceDaoR4UpdateTagSnapshotTest extends BaseJpaR4Test {
 		p = myPatientDao.read(new IdType("A"), mySrd);
 		assertEquals(true, p.getActive());
 		assertEquals(0, p.getMeta().getTag().size());
-		// It would be nice if this didn't trigger a version update but
-		// i guess it's not so bad that it does
-		assertEquals("2", p.getIdElement().getVersionIdPart());
+		assertEquals("1", p.getIdElement().getVersionIdPart());
 	}
 
 	@AfterClass

@@ -1,5 +1,6 @@
 package ca.uhn.fhir.jpa.provider.r4;
 
+import ca.uhn.fhir.rest.api.MethodOutcome;
 import ca.uhn.fhir.util.TestUtil;
 import org.hl7.fhir.instance.model.api.IIdType;
 import org.hl7.fhir.r4.model.*;
@@ -30,6 +31,37 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 	}
 
 	@Test
+	public void testStoreExistingTermConceptMapAndChildren() {
+		ConceptMap conceptMap = createConceptMap();
+
+		MethodOutcome methodOutcome = ourClient
+			.update()
+			.resource(conceptMap)
+			.conditional()
+			.where(ConceptMap.URL.matches().value(conceptMap.getUrl()))
+			.execute();
+
+		assertNull(methodOutcome.getCreated());
+		assertEquals("1", methodOutcome.getId().getVersionIdPart());
+	}
+
+	@Test
+	public void testStoreUpdatedTermConceptMapAndChildren() {
+		ConceptMap conceptMap = createConceptMap();
+		conceptMap.getGroupFirstRep().getElementFirstRep().setCode("UPDATED_CODE");
+
+		MethodOutcome methodOutcome = ourClient
+			.update()
+			.resource(conceptMap)
+			.conditional()
+			.where(ConceptMap.URL.matches().value(conceptMap.getUrl()))
+			.execute();
+
+		assertNull(methodOutcome.getCreated());
+		assertEquals("2", methodOutcome.getId().getVersionIdPart());
+	}
+
+	@Test
 	public void testTranslateByCodeSystemsAndSourceCodeOneToMany() {
 		ConceptMap conceptMap = myConceptMapDao.read(myConceptMapId);
 
@@ -42,7 +74,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -100,7 +132,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -145,7 +177,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -178,7 +210,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -256,7 +288,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -309,7 +341,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -400,7 +432,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -479,7 +511,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -530,7 +562,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -595,7 +627,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -646,7 +678,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -709,7 +741,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -786,7 +818,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -857,7 +889,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onInstance(myConceptMapId)
 			.named("translate")
@@ -938,7 +970,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -956,9 +988,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(1, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -984,7 +1016,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1019,7 +1051,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1037,9 +1069,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(2, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1051,9 +1083,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1085,7 +1117,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1103,9 +1135,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(2, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1117,9 +1149,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1155,7 +1187,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1173,9 +1205,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(4, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1187,9 +1219,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1215,9 +1247,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(3);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1248,7 +1280,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1266,9 +1298,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(2, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1280,9 +1312,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1315,7 +1347,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1333,9 +1365,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(2, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1347,9 +1379,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1382,7 +1414,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1400,9 +1432,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(1, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1435,7 +1467,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1453,9 +1485,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(1, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1486,7 +1518,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1504,9 +1536,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(2, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1518,9 +1550,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1551,7 +1583,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onType(ConceptMap.class)
 			.named("translate")
@@ -1569,9 +1601,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(2, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1583,9 +1615,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());
@@ -1609,7 +1641,7 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 
 		ourLog.info("Request Parameters:\n" + myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(inParams));
 
-		Parameters respParams = myClient
+		Parameters respParams = ourClient
 			.operation()
 			.onInstance(myConceptMapId)
 			.named("translate")
@@ -1627,9 +1659,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(2, getNumberOfParametersByName(respParams, "match"));
 
 		param = getParametersByName(respParams, "match").get(0);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		ParametersParameterComponent part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("equal", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		Coding coding = (Coding) part.getValue();
 		assertEquals("12345", coding.getCode());
@@ -1641,9 +1673,9 @@ public class ResourceProviderR4ConceptMapTest extends BaseResourceProviderR4Test
 		assertEquals(CM_URL, ((UriType) part.getValue()).getValueAsString());
 
 		param = getParametersByName(respParams, "match").get(1);
-		assertEquals(2, param.getPart().size());
+		assertEquals(3, param.getPart().size());
 		part = getPartByName(param, "equivalence");
-		assertFalse(part.hasValue());
+		assertEquals("narrower", ((CodeType)part.getValue()).getCode());
 		part = getPartByName(param, "concept");
 		coding = (Coding) part.getValue();
 		assertEquals("78901", coding.getCode());

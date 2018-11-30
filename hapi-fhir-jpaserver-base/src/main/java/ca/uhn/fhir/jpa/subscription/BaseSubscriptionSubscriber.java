@@ -21,25 +21,38 @@ package ca.uhn.fhir.jpa.subscription;
  */
 
 import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.jpa.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.dao.IFhirResourceDao;
-import org.hl7.fhir.instance.model.api.IBaseResource;
-import org.hl7.fhir.instance.model.api.IPrimitiveType;
 import org.hl7.fhir.r4.model.Subscription;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.MessageHandler;
+
+import javax.annotation.PostConstruct;
 
 public abstract class BaseSubscriptionSubscriber implements MessageHandler {
 
-	private final IFhirResourceDao<?> mySubscriptionDao;
 	private final Subscription.SubscriptionChannelType myChannelType;
 	private final BaseSubscriptionInterceptor mySubscriptionInterceptor;
+	@Autowired
+	DaoRegistry myDaoRegistry;
+	private IFhirResourceDao<?> mySubscriptionDao;
 
 	/**
 	 * Constructor
 	 */
-	public BaseSubscriptionSubscriber(IFhirResourceDao<?> theSubscriptionDao, Subscription.SubscriptionChannelType theChannelType, BaseSubscriptionInterceptor theSubscriptionInterceptor) {
-		mySubscriptionDao = theSubscriptionDao;
+	public BaseSubscriptionSubscriber(Subscription.SubscriptionChannelType theChannelType, BaseSubscriptionInterceptor theSubscriptionInterceptor) {
 		myChannelType = theChannelType;
 		mySubscriptionInterceptor = theSubscriptionInterceptor;
+	}
+
+	@SuppressWarnings("unused") // Don't delete, used in Smile
+	public void setDaoRegistry(DaoRegistry theDaoRegistry) {
+		myDaoRegistry = theDaoRegistry;
+	}
+
+	@PostConstruct
+	public void setSubscriptionDao() {
+		mySubscriptionDao = myDaoRegistry.getResourceDao("Subscription");
 	}
 
 	public Subscription.SubscriptionChannelType getChannelType() {
@@ -62,19 +75,19 @@ public abstract class BaseSubscriptionSubscriber implements MessageHandler {
 	/**
 	 * Does this subscription type (e.g. rest hook, websocket, etc) apply to this interceptor?
 	 */
-	protected boolean subscriptionTypeApplies(FhirContext theCtx, IBaseResource theSubscription) {
+	protected boolean subscriptionTypeApplies(CanonicalSubscription theSubscription) {
 		Subscription.SubscriptionChannelType channelType = getChannelType();
-		return subscriptionTypeApplies(theCtx, theSubscription, channelType);
+		String subscriptionType = theSubscription.getChannelType().toCode();
+		return subscriptionTypeApplies(subscriptionType, channelType);
 	}
 
 	/**
 	 * Does this subscription type (e.g. rest hook, websocket, etc) apply to this interceptor?
 	 */
-	static boolean subscriptionTypeApplies(FhirContext theCtx, IBaseResource theSubscription, Subscription.SubscriptionChannelType theChannelType) {
-		IPrimitiveType<?> subscriptionType = theCtx.newTerser().getSingleValueOrNull(theSubscription, BaseSubscriptionInterceptor.SUBSCRIPTION_TYPE, IPrimitiveType.class);
+	static boolean subscriptionTypeApplies(String theSubscriptionChannelTypeCode, Subscription.SubscriptionChannelType theChannelType) {
 		boolean subscriptionTypeApplies = false;
- 		if (subscriptionType != null) {
-			if (theChannelType.toCode().equals(subscriptionType.getValueAsString())) {
+		if (theSubscriptionChannelTypeCode != null) {
+			if (theChannelType.toCode().equals(theSubscriptionChannelTypeCode)) {
 				subscriptionTypeApplies = true;
 			}
 		}

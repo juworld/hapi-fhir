@@ -7,6 +7,7 @@ import static org.junit.Assert.*;
 import java.io.IOException;
 import java.util.*;
 
+import ca.uhn.fhir.jpa.entity.ResourceReindexJobEntity;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -80,7 +81,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 		sp.setTitle("Foo Param");
 
 		try {
-			myClient.create().resource(sp).execute();
+			ourClient.create().resource(sp).execute();
 			fail();
 		} catch (UnprocessableEntityException e) {
 			assertEquals("HTTP 422 Unprocessable Entity: SearchParameter.status is missing or invalid", e.getMessage());
@@ -91,7 +92,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 	public void testConformanceOverrideAllowed() {
 		myDaoConfig.setDefaultSearchParamsCanBeOverridden(true);
 
-		CapabilityStatement conformance = myClient
+		CapabilityStatement conformance = ourClient
 				.fetchConformance()
 				.ofType(CapabilityStatement.class)
 				.execute();
@@ -143,7 +144,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 			}
 		});
 
-		conformance = myClient
+		conformance = ourClient
 				.fetchConformance()
 				.ofType(CapabilityStatement.class)
 				.execute();
@@ -161,7 +162,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 	public void testConformanceOverrideNotAllowed() {
 		myDaoConfig.setDefaultSearchParamsCanBeOverridden(false);
 
-		CapabilityStatement conformance = myClient
+		CapabilityStatement conformance = ourClient
 				.fetchConformance()
 				.ofType(CapabilityStatement.class)
 				.execute();
@@ -197,7 +198,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 
 		mySearchParamRegsitry.forceRefresh();
 
-		conformance = myClient
+		conformance = ourClient
 				.fetchConformance()
 				.ofType(CapabilityStatement.class)
 				.execute();
@@ -221,9 +222,9 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 		obs2.setStatus(ObservationStatus.FINAL);
 		IIdType obsId = myObservationDao.create(obs2, mySrd).getId().toUnqualifiedVersionless();
 
-		ResourceTable res = myResourceTableDao.findOne(patId.getIdPartAsLong());
+		ResourceTable res = myResourceTableDao.findById(patId.getIdPartAsLong()).orElseThrow(IllegalStateException::new);
 		assertEquals(BaseHapiFhirDao.INDEX_STATUS_INDEXED, res.getIndexStatus().longValue());
-		res = myResourceTableDao.findOne(obsId.getIdPartAsLong());
+		res = myResourceTableDao.findById(obsId.getIdPartAsLong()).orElseThrow(IllegalStateException::new);
 		assertEquals(BaseHapiFhirDao.INDEX_STATUS_INDEXED, res.getIndexStatus().longValue());
 
 		SearchParameter fooSp = new SearchParameter();
@@ -236,10 +237,11 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 		fooSp.setStatus(org.hl7.fhir.r4.model.Enumerations.PublicationStatus.ACTIVE);
 		mySearchParameterDao.create(fooSp, mySrd);
 
-		res = myResourceTableDao.findOne(patId.getIdPartAsLong());
-		assertEquals(null, res.getIndexStatus());
-		res = myResourceTableDao.findOne(obsId.getIdPartAsLong());
-		assertEquals(BaseHapiFhirDao.INDEX_STATUS_INDEXED, res.getIndexStatus().longValue());
+		runInTransaction(()->{
+			List<ResourceReindexJobEntity> allJobs = myResourceReindexJobDao.findAll();
+			assertEquals(1, allJobs.size());
+			assertEquals("Patient", allJobs.get(0).getResourceType());
+		});
 
 	}
 
@@ -301,7 +303,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 
 		ourLog.info(myFhirCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(eyeColourSp));
 
-		myClient
+		ourClient
 				.create()
 				.resource(eyeColourSp)
 				.execute();
@@ -320,7 +322,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 		p2.addExtension().setUrl("http://acme.org/eyecolour").setValue(new CodeType("green"));
 		IIdType p2id = myPatientDao.create(p2).getId().toUnqualifiedVersionless();
 
-		Bundle bundle = myClient
+		Bundle bundle = ourClient
 				.search()
 				.forResource(Patient.class)
 				.where(new TokenClientParam("eyecolour").exactly().code("blue"))
@@ -367,7 +369,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 		List<String> foundResources;
 		Bundle result;
 
-		result = myClient
+		result = ourClient
 				.search()
 				.forResource(Observation.class)
 				.where(new ReferenceClientParam("foo").hasChainedProperty(Patient.GENDER.exactly().code("male")))
@@ -407,7 +409,7 @@ public class ResourceProviderCustomSearchParamR4Test extends BaseResourceProvide
 		List<String> foundResources;
 		Bundle result;
 
-		result = myClient
+		result = ourClient
 				.search()
 				.forResource(Patient.class)
 				.where(new TokenClientParam("foo").exactly().code("male"))

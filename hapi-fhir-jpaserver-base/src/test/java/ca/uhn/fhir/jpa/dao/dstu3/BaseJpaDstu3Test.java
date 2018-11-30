@@ -12,6 +12,7 @@ import ca.uhn.fhir.jpa.provider.dstu3.JpaSystemProviderDstu3;
 import ca.uhn.fhir.jpa.search.DatabaseBackedPagingProvider;
 import ca.uhn.fhir.jpa.search.ISearchCoordinatorSvc;
 import ca.uhn.fhir.jpa.search.IStaleSearchDeletingSvc;
+import ca.uhn.fhir.jpa.search.reindex.IResourceReindexingSvc;
 import ca.uhn.fhir.jpa.sp.ISearchParamPresenceSvc;
 import ca.uhn.fhir.jpa.term.BaseHapiTerminologySvcImpl;
 import ca.uhn.fhir.jpa.term.IHapiTerminologySvc;
@@ -66,6 +67,10 @@ public abstract class BaseJpaDstu3Test extends BaseJpaTest {
 	@Autowired
 	@Qualifier("myResourceCountsCache")
 	protected ResourceCountCache myResourceCountsCache;
+	@Autowired
+	protected IResourceReindexingSvc myResourceReindexingSvc;
+	@Autowired
+	protected IResourceReindexJobDao myResourceReindexJobDao;
 	@Autowired
 	@Qualifier("myCoverageDaoDstu3")
 	protected IFhirResourceDao<Coverage> myCoverageDao;
@@ -168,6 +173,12 @@ public abstract class BaseJpaDstu3Test extends BaseJpaTest {
 	@Qualifier("myPatientDaoDstu3")
 	protected IFhirResourceDaoPatient<Patient> myPatientDao;
 	@Autowired
+	@Qualifier("myCompositionDaoDstu3")
+	protected IFhirResourceDao<Composition> myCompositionDao;
+	@Autowired
+	@Qualifier("myCommunicationDaoDstu3")
+	protected IFhirResourceDao<Communication> myCommunicationDao;
+	@Autowired
 	@Qualifier("myPractitionerDaoDstu3")
 	protected IFhirResourceDao<Practitioner> myPractitionerDao;
 	@Autowired
@@ -241,6 +252,8 @@ public abstract class BaseJpaDstu3Test extends BaseJpaTest {
 	protected ITermConceptMapGroupElementTargetDao myTermConceptMapGroupElementTargetDao;
 	@Autowired
 	private JpaValidationSupportChainDstu3 myJpaValidationSupportChainDstu3;
+	@Autowired
+	protected ISearchParamRegistry mySearchParamRegistry;
 
 	@After()
 	public void afterCleanupDao() {
@@ -274,12 +287,13 @@ public abstract class BaseJpaDstu3Test extends BaseJpaTest {
 	}
 
 	@Before
-	@Transactional
 	public void beforeFlushFT() {
-		FullTextEntityManager ftem = Search.getFullTextEntityManager(myEntityManager);
-		ftem.purgeAll(ResourceTable.class);
-		ftem.purgeAll(ResourceIndexedSearchParamString.class);
-		ftem.flushToIndexes();
+		runInTransaction(() -> {
+			FullTextEntityManager ftem = Search.getFullTextEntityManager(myEntityManager);
+			ftem.purgeAll(ResourceTable.class);
+			ftem.purgeAll(ResourceIndexedSearchParamString.class);
+			ftem.flushToIndexes();
+		});
 
 		myDaoConfig.setSchedulingDisabled(true);
 		myDaoConfig.setIndexMissingFields(DaoConfig.IndexEnabledEnum.ENABLED);
@@ -288,7 +302,7 @@ public abstract class BaseJpaDstu3Test extends BaseJpaTest {
 	@Before
 	@Transactional()
 	public void beforePurgeDatabase() {
-		purgeDatabase(myDaoConfig, mySystemDao, mySearchParamPresenceSvc, mySearchCoordinatorSvc, mySearchParamRegsitry);
+		purgeDatabase(myDaoConfig, mySystemDao, myResourceReindexingSvc, mySearchCoordinatorSvc, mySearchParamRegsitry);
 	}
 
 	@Before
@@ -319,6 +333,7 @@ public abstract class BaseJpaDstu3Test extends BaseJpaTest {
 		return newJsonParser.parseResource(type, string);
 	}
 
+	@Override
 	public TransactionTemplate newTxTemplate() {
 		TransactionTemplate retVal = new TransactionTemplate(myTxManager);
 		retVal.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);

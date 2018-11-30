@@ -1,20 +1,24 @@
 package ca.uhn.fhir.jpa.dao.r4;
 
 import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.context.FhirVersionEnum;
 import ca.uhn.fhir.jpa.dao.BaseSearchParamExtractor;
+import ca.uhn.fhir.jpa.dao.DaoConfig;
 import ca.uhn.fhir.jpa.dao.IFhirResourceDaoSearchParameter;
 import ca.uhn.fhir.jpa.dao.IFhirSystemDao;
 import ca.uhn.fhir.jpa.entity.ResourceTable;
 import ca.uhn.fhir.parser.DataFormatException;
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
 import ca.uhn.fhir.util.ElementUtil;
-import org.apache.commons.lang3.time.DateUtils;
+import org.hl7.fhir.instance.model.api.IBase;
+import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IPrimitiveType;
+import org.hl7.fhir.r4.hapi.ctx.DefaultProfileValidationSupport;
+import org.hl7.fhir.r4.hapi.ctx.HapiWorkerContext;
 import org.hl7.fhir.r4.model.*;
+import org.hl7.fhir.r4.utils.FHIRLexer;
+import org.hl7.fhir.r4.utils.FHIRPathEngine;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -42,6 +46,7 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 
 public class FhirResourceDaoSearchParameterR4 extends FhirResourceDaoR4<SearchParameter> implements IFhirResourceDaoSearchParameter<SearchParameter> {
 
+	public static final DefaultProfileValidationSupport VALIDATION_SUPPORT = new DefaultProfileValidationSupport();
 	@Autowired
 	private IFhirSystemDao<Bundle, Meta> mySystemDao;
 
@@ -51,31 +56,6 @@ public class FhirResourceDaoSearchParameterR4 extends FhirResourceDaoR4<SearchPa
 		markResourcesMatchingExpressionAsNeedingReindexing(reindex, expression);
 	}
 
-	/**
-	 * This method is called once per minute to perform any required re-indexing. During most passes this will
-	 * just check and find that there are no resources requiring re-indexing. In that case the method just returns
-	 * immediately. If the search finds that some resources require reindexing, the system will do multiple
-	 * reindexing passes and then return.
-	 */
-	@Override
-	@Scheduled(fixedDelay = DateUtils.MILLIS_PER_MINUTE)
-	@Transactional(propagation = Propagation.NEVER)
-	public void performReindexingPass() {
-		if (getConfig().isSchedulingDisabled()) {
-			return;
-		}
-
-		Integer count = mySystemDao.performReindexingPass(100);
-		for (int i = 0; i < 50 && count != null && count != 0; i++) {
-			count = mySystemDao.performReindexingPass(100);
-			try {
-				Thread.sleep(DateUtils.MILLIS_PER_SECOND);
-			} catch (InterruptedException e) {
-				break;
-			}
-		}
-
-	}
 
 	@Override
 	protected void postPersist(ResourceTable theEntity, SearchParameter theResource) {
@@ -104,16 +84,16 @@ public class FhirResourceDaoSearchParameterR4 extends FhirResourceDaoR4<SearchPa
 		String expression = theResource.getExpression();
 		FhirContext context = getContext();
 		Enum<?> type = theResource.getType();
-		
-		FhirResourceDaoSearchParameterR4.validateSearchParam(type, status, base, expression, context);
+
+		FhirResourceDaoSearchParameterR4.validateSearchParam(type, status, base, expression, context, getConfig());
 	}
 
-	public static void validateSearchParam(Enum<?> theType, Enum<?> theStatus, List<? extends IPrimitiveType> theBase, String theExpression, FhirContext theContext) {
+	public static void validateSearchParam(Enum<?> theType, Enum<?> theStatus, List<? extends IPrimitiveType> theBase, String theExpression, FhirContext theContext, DaoConfig theDaoConfig) {
 		if (theStatus == null) {
 			throw new UnprocessableEntityException("SearchParameter.status is missing or invalid");
 		}
 
-		if (ElementUtil.isEmpty(theBase)) {
+		if (ElementUtil.isEmpty(theBase) && (theType == null || !Enumerations.SearchParamType.COMPOSITE.name().equals(theType.name()))) {
 			throw new UnprocessableEntityException("SearchParameter.base is missing");
 		}
 
@@ -129,24 +109,46 @@ public class FhirResourceDaoSearchParameterR4 extends FhirResourceDaoR4<SearchPa
 
 			theExpression = theExpression.trim();
 
-			String[] expressionSplit = BaseSearchParamExtractor.SPLIT.split(theExpression);
-			for (String nextPath : expressionSplit) {
-				nextPath = nextPath.trim();
+			if (!theContext.getVersion().getVersion().isEqualOrNewerThan(FhirVersionEnum.R4)) {
+				String[] expressionSplit = BaseSearchParamExtractor.SPLIT.split(theExpression);
+				for (String nextPath : expressionSplit) {
+					nextPath = nextPath.trim();
 
-				int dotIdx = nextPath.indexOf('.');
-				if (dotIdx == -1) {
-					throw new UnprocessableEntityException("Invalid SearchParameter.expression value \"" + nextPath + "\". Must start with a resource name");
+					int dotIdx = nextPath.indexOf('.');
+					if (dotIdx == -1) {
+						throw new UnprocessableEntityException("Invalid SearchParameter.expression value \"" + nextPath + "\". Must start with a resource name");
+					}
+
+					String resourceName = nextPath.substring(0, dotIdx);
+					try {
+						theContext.getResourceDefinition(resourceName);
+					} catch (DataFormatException e) {
+						throw new UnprocessableEntityException("Invalid SearchParameter.expression value \"" + nextPath + "\": " + e.getMessage());
+					}
+
+					if (theContext.getVersion().getVersion().isEqualOrNewerThan(FhirVersionEnum.DSTU3)) {
+						if (theDaoConfig.isValidateSearchParameterExpressionsOnSave()) {
+							IBaseResource temporaryInstance = theContext.getResourceDefinition(resourceName).newInstance();
+							try {
+								theContext.newFluentPath().evaluate(temporaryInstance, nextPath, IBase.class);
+							} catch (Exception e) {
+								String msg = theContext.getLocalizer().getMessage(FhirResourceDaoSearchParameterR4.class, "invalidSearchParamExpression", nextPath, e.getMessage());
+								throw new UnprocessableEntityException(msg, e);
+							}
+						}
+					}
 				}
 
-				String resourceName = nextPath.substring(0, dotIdx);
+			} else {
+
+				FHIRPathEngine fhirPathEngine = new FHIRPathEngine(new HapiWorkerContext(theContext, VALIDATION_SUPPORT));
 				try {
-					theContext.getResourceDefinition(resourceName);
-				} catch (DataFormatException e) {
-					throw new UnprocessableEntityException("Invalid SearchParameter.expression value \"" + nextPath + "\": " + e.getMessage());
+					fhirPathEngine.parse(theExpression);
+				} catch (FHIRLexer.FHIRLexerException e) {
+					throw new UnprocessableEntityException("Invalid SearchParameter.expression value \"" + theExpression + "\": " + e.getMessage());
 				}
 
 			}
-
 		} // if have expression
 	}
 

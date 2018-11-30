@@ -29,34 +29,34 @@ import org.hibernate.search.annotations.Field;
 
 import javax.persistence.*;
 
-//@formatter:off
 @Embeddable
 @Entity
-@Table(name = "HFJ_SPIDX_COORDS", indexes = { 
-	@Index(name = "IDX_SP_COORDS", columnList = "RES_TYPE,SP_NAME,SP_LATITUDE,SP_LONGITUDE"), 
-	@Index(name = "IDX_SP_COORDS_UPDATED", columnList = "SP_UPDATED"), 
-	@Index(name = "IDX_SP_COORDS_RESID", columnList = "RES_ID") 
+@Table(name = "HFJ_SPIDX_COORDS", indexes = {
+	@Index(name = "IDX_SP_COORDS_HASH", columnList = "HASH_IDENTITY,SP_LATITUDE,SP_LONGITUDE"),
+	@Index(name = "IDX_SP_COORDS_UPDATED", columnList = "SP_UPDATED"),
+	@Index(name = "IDX_SP_COORDS_RESID", columnList = "RES_ID")
 })
-//@formatter:on
 public class ResourceIndexedSearchParamCoords extends BaseResourceIndexedSearchParam {
 
 	public static final int MAX_LENGTH = 100;
 
 	private static final long serialVersionUID = 1L;
-
+	@Column(name = "SP_LATITUDE")
+	@Field
+	public double myLatitude;
+	@Column(name = "SP_LONGITUDE")
+	@Field
+	public double myLongitude;
 	@Id
 	@SequenceGenerator(name = "SEQ_SPIDX_COORDS", sequenceName = "SEQ_SPIDX_COORDS")
 	@GeneratedValue(strategy = GenerationType.AUTO, generator = "SEQ_SPIDX_COORDS")
 	@Column(name = "SP_ID")
 	private Long myId;
-
-	@Column(name = "SP_LATITUDE")
-	@Field
-	public double myLatitude;
-
-	@Column(name = "SP_LONGITUDE")
-	@Field
-	public double myLongitude;
+	/**
+	 * @since 3.5.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_IDENTITY", nullable = true)
+	private Long myHashIdentity;
 
 	public ResourceIndexedSearchParamCoords() {
 	}
@@ -65,6 +65,21 @@ public class ResourceIndexedSearchParamCoords extends BaseResourceIndexedSearchP
 		setParamName(theName);
 		setLatitude(theLatitude);
 		setLongitude(theLongitude);
+	}
+
+	@Override
+	@PrePersist
+	public void calculateHashes() {
+		if (myHashIdentity == null) {
+			String resourceType = getResourceType();
+			String paramName = getParamName();
+			setHashIdentity(calculateHashIdentity(resourceType, paramName));
+		}
+	}
+
+	@Override
+	protected void clearHashes() {
+		myHashIdentity = null;
 	}
 
 	@Override
@@ -84,7 +99,16 @@ public class ResourceIndexedSearchParamCoords extends BaseResourceIndexedSearchP
 		b.append(getResource(), obj.getResource());
 		b.append(getLatitude(), obj.getLatitude());
 		b.append(getLongitude(), obj.getLongitude());
+		b.append(getHashIdentity(), obj.getHashIdentity());
 		return b.isEquals();
+	}
+
+	public Long getHashIdentity() {
+		return myHashIdentity;
+	}
+
+	public void setHashIdentity(Long theHashIdentity) {
+		myHashIdentity = theHashIdentity;
 	}
 
 	@Override
@@ -92,17 +116,20 @@ public class ResourceIndexedSearchParamCoords extends BaseResourceIndexedSearchP
 		return myId;
 	}
 
-	@Override
-	public IQueryParameterType toQueryParameterType() {
-		return null;
-	}
-
 	public double getLatitude() {
 		return myLatitude;
 	}
 
+	public void setLatitude(double theLatitude) {
+		myLatitude = theLatitude;
+	}
+
 	public double getLongitude() {
 		return myLongitude;
+	}
+
+	public void setLongitude(double theLongitude) {
+		myLongitude = theLongitude;
 	}
 
 	@Override
@@ -115,12 +142,9 @@ public class ResourceIndexedSearchParamCoords extends BaseResourceIndexedSearchP
 		return b.toHashCode();
 	}
 
-	public void setLatitude(double theLatitude) {
-		myLatitude = theLatitude;
-	}
-
-	public void setLongitude(double theLongitude) {
-		myLongitude = theLongitude;
+	@Override
+	public IQueryParameterType toQueryParameterType() {
+		return null;
 	}
 
 	@Override

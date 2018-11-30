@@ -3,7 +3,6 @@ package ca.uhn.fhir.jpa.term;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.jpa.dao.IFhirResourceDao;
 import ca.uhn.fhir.jpa.dao.IFhirResourceDaoCodeSystem;
-import ca.uhn.fhir.jpa.dao.data.ITermCodeSystemDao;
 import ca.uhn.fhir.jpa.entity.TermConcept;
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
 import ca.uhn.fhir.util.CoverageIgnore;
@@ -21,9 +20,6 @@ import org.hl7.fhir.utilities.validation.ValidationMessage.IssueSeverity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 
-import javax.persistence.EntityManager;
-import javax.persistence.PersistenceContext;
-import javax.persistence.PersistenceContextType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -53,12 +49,6 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 public class HapiTerminologySvcDstu3 extends BaseHapiTerminologySvcImpl implements IValidationSupport, IHapiTerminologySvcDstu3 {
 
-	@PersistenceContext(type = PersistenceContextType.TRANSACTION)
-	protected EntityManager myEntityManager;
-	@Autowired
-	protected FhirContext myContext;
-	@Autowired
-	protected ITermCodeSystemDao myCodeSystemDao;
 	@Autowired
 	@Qualifier("myValueSetDaoDstu3")
 	private IFhirResourceDao<ValueSet> myValueSetResourceDao;
@@ -161,6 +151,20 @@ public class HapiTerminologySvcDstu3 extends BaseHapiTerminologySvcImpl implemen
 			valueSetToExpandR4 = VersionConvertor_30_40.convertValueSet(valueSetToExpand);
 			org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionComponent expandedR4 = super.expandValueSet(valueSetToExpandR4).getExpansion();
 			return VersionConvertor_30_40.convertValueSetExpansionComponent(expandedR4);
+		} catch (FHIRException e) {
+			throw new InternalErrorException(e);
+		}
+	}
+
+	@Override
+	public IBaseResource expandValueSet(IBaseResource theInput) {
+		ValueSet valueSetToExpand = (ValueSet) theInput;
+
+		try {
+			org.hl7.fhir.r4.model.ValueSet valueSetToExpandR4;
+			valueSetToExpandR4 = VersionConvertor_30_40.convertValueSet(valueSetToExpand);
+			org.hl7.fhir.r4.model.ValueSet expandedR4 = super.expandValueSet(valueSetToExpandR4);
+			return VersionConvertor_30_40.convertValueSet(expandedR4);
 		} catch (FHIRException e) {
 			throw new InternalErrorException(e);
 		}

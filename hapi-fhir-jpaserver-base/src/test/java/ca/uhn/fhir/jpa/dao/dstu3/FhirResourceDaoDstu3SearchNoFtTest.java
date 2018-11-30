@@ -398,10 +398,13 @@ public class FhirResourceDaoDstu3SearchNoFtTest extends BaseJpaDstu3Test {
 				myEncounterDao.search(new SearchParameterMap().setLoadSynchronous(true).add(Encounter.SP_LOCATION_PERIOD, new DateParam("2011-12-12T11:12:12Z"))));
 		assertThat(actual, contains(id));
 
-		Class<ResourceIndexedSearchParamDate> type = ResourceIndexedSearchParamDate.class;
-		List<?> results = myEntityManager.createQuery("SELECT i FROM " + type.getSimpleName() + " i WHERE i.myMissing = false", type).getResultList();
-		ourLog.info(toStringMultiline(results));
-		assertEquals(2, results.size());
+		runInTransaction(()->{
+			Class<ResourceIndexedSearchParamDate> type = ResourceIndexedSearchParamDate.class;
+			List<?> results = myEntityManager.createQuery("SELECT i FROM " + type.getSimpleName() + " i WHERE i.myMissing = false", type).getResultList();
+			ourLog.info(toStringMultiline(results));
+			assertEquals(2, results.size());
+		});
+
 	}
 
 	@Test
@@ -419,10 +422,12 @@ public class FhirResourceDaoDstu3SearchNoFtTest extends BaseJpaDstu3Test {
 		List<IIdType> actual = toUnqualifiedVersionlessIds(myImmunizationDao.search(new SearchParameterMap().setLoadSynchronous(true).add(Immunization.SP_DOSE_SEQUENCE, new NumberParam("1"))));
 		assertThat(actual, contains(id));
 
-		Class<ResourceIndexedSearchParamNumber> type = ResourceIndexedSearchParamNumber.class;
-		List<?> results = myEntityManager.createQuery("SELECT i FROM " + type.getSimpleName() + " i", type).getResultList();
-		ourLog.info(toStringMultiline(results));
-		assertEquals(2, results.size());
+		runInTransaction(()-> {
+			Class<ResourceIndexedSearchParamNumber> type = ResourceIndexedSearchParamNumber.class;
+			List<?> results = myEntityManager.createQuery("SELECT i FROM " + type.getSimpleName() + " i", type).getResultList();
+			ourLog.info(toStringMultiline(results));
+			assertEquals(2, results.size());
+		});
 	}
 
 	@Test
@@ -1608,16 +1613,18 @@ public class FhirResourceDaoDstu3SearchNoFtTest extends BaseJpaDstu3Test {
 		obs01.setSubject(new Reference(patientId01));
 		IIdType obsId01 = myObservationDao.create(obs01, mySrd).getId().toUnqualifiedVersionless();
 
+		ca.uhn.fhir.jpa.util.TestUtil.sleepAtLeast(1);
 		Date between = new Date();
-		Thread.sleep(10);
+		ca.uhn.fhir.jpa.util.TestUtil.sleepAtLeast(1);
 
 		Observation obs02 = new Observation();
 		obs02.setEffective(new DateTimeType(new Date()));
 		obs02.setSubject(new Reference(locId01));
 		IIdType obsId02 = myObservationDao.create(obs02, mySrd).getId().toUnqualifiedVersionless();
 
-		Thread.sleep(10);
+		ca.uhn.fhir.jpa.util.TestUtil.sleepAtLeast(1);
 		Date after = new Date();
+		ca.uhn.fhir.jpa.util.TestUtil.sleepAtLeast(1);
 
 		ourLog.info("P1[{}] L1[{}] Obs1[{}] Obs2[{}]", new Object[] { patientId01, locId01, obsId01, obsId02 });
 

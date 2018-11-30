@@ -20,44 +20,24 @@ package ca.uhn.fhir.jpa.subscription.websocket;
  * #L%
  */
 
-import ca.uhn.fhir.jpa.dao.data.IResourceTableDao;
-import ca.uhn.fhir.jpa.dao.data.ISubscriptionTableDao;
 import ca.uhn.fhir.jpa.subscription.BaseSubscriptionInterceptor;
+import ca.uhn.fhir.jpa.subscription.CanonicalSubscription;
 import org.hl7.fhir.r4.model.Subscription;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.messaging.MessageHandler;
+
+import java.util.Optional;
 
 public class SubscriptionWebsocketInterceptor extends BaseSubscriptionInterceptor {
 
-	@Autowired
-	private ISubscriptionTableDao mySubscriptionTableDao;
-
-	@Autowired
-	private PlatformTransactionManager myTxManager;
-
-	@Autowired
-	private IResourceTableDao myResourceTableDao;
+	@Override
+	protected Optional<MessageHandler> createDeliveryHandler(CanonicalSubscription theSubscription) {
+		return Optional.empty();
+	}
 
 	@Override
 	public Subscription.SubscriptionChannelType getChannelType() {
 		return Subscription.SubscriptionChannelType.WEBSOCKET;
 	}
 
-	@Override
-	protected void registerDeliverySubscriber() {
-		/*
-		 * nothing, since individual websocket connections
-		 * register themselves
-		 */
-	}
 
-	@Override
-	protected void unregisterDeliverySubscriber() {
-
-		/*
-		 * nothing, since individual websocket connections
-		 * register themselves
-		 */
-
-	}
 }

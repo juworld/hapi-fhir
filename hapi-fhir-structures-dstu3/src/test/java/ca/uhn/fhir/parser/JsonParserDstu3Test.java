@@ -1023,7 +1023,7 @@ public class JsonParserDstu3Test {
 		ourLog.info(encoded);
 
 		assertThat(encoded, containsString("Patient"));
-		assertThat(encoded, stringContainsInOrder(ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_SYSTEM, ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_CODE));
+		assertThat(encoded, stringContainsInOrder(ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_SYSTEM_DSTU3, ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_CODE));
 		assertThat(encoded, not(containsString("text")));
 		assertThat(encoded, not(containsString("THE DIV")));
 		assertThat(encoded, containsString("family"));
@@ -1057,7 +1057,7 @@ public class JsonParserDstu3Test {
 		ourLog.info(encoded);
 
 		assertThat(encoded, containsString("Patient"));
-		assertThat(encoded, stringContainsInOrder("\"tag\"", "\"system\": \"" + ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_SYSTEM + "\",", "\"code\": \"" + ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_CODE + "\""));
+		assertThat(encoded, stringContainsInOrder("\"tag\"", "\"system\": \"" + ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_SYSTEM_DSTU3 + "\",", "\"code\": \"" + ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_CODE + "\""));
 		assertThat(encoded, not(containsString("THE DIV")));
 		assertThat(encoded, containsString("family"));
 		assertThat(encoded, not(containsString("maritalStatus")));
@@ -1077,7 +1077,7 @@ public class JsonParserDstu3Test {
 		ourLog.info(encoded);
 
 		assertThat(encoded, containsString("Patient"));
-		assertThat(encoded, stringContainsInOrder("\"tag\"", "\"system\": \"foo\",", "\"code\": \"bar\"", "\"system\": \"" + ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_SYSTEM + "\"",
+		assertThat(encoded, stringContainsInOrder("\"tag\"", "\"system\": \"foo\",", "\"code\": \"bar\"", "\"system\": \"" + ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_SYSTEM_DSTU3 + "\"",
 			"\"code\": \"" + ca.uhn.fhir.rest.api.Constants.TAG_SUBSETTED_CODE + "\""));
 		assertThat(encoded, not(containsString("THE DIV")));
 		assertThat(encoded, containsString("family"));
@@ -1361,7 +1361,7 @@ public class JsonParserDstu3Test {
 		ArgumentCaptor<ValueType> expected = ArgumentCaptor.forClass(ValueType.class);
 		ArgumentCaptor<ScalarType> expectedScalarType = ArgumentCaptor.forClass(ScalarType.class);
 		ArgumentCaptor<ScalarType> foundScalarType = ArgumentCaptor.forClass(ScalarType.class);
-		verify(errorHandler, times(2)).incorrectJsonType(any(IParseLocation.class), elementName.capture(), expected.capture(), expectedScalarType.capture(), found.capture(), foundScalarType.capture());
+		verify(errorHandler, times(2)).incorrectJsonType(nullable(IParseLocation.class), elementName.capture(), expected.capture(), expectedScalarType.capture(), found.capture(), foundScalarType.capture());
 
 		assertEquals(ValueType.SCALAR, found.getAllValues().get(0));
 		assertEquals(ValueType.SCALAR, expected.getAllValues().get(0));
@@ -2344,13 +2344,13 @@ public class JsonParserDstu3Test {
 		ArgumentCaptor<ValueType> actual = ArgumentCaptor.forClass(ValueType.class);
 		ArgumentCaptor<ScalarType> expectedScalar = ArgumentCaptor.forClass(ScalarType.class);
 		ArgumentCaptor<ScalarType> actualScalar = ArgumentCaptor.forClass(ScalarType.class);
-		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.any(IParseLocation.class), elementName.capture(), expected.capture(), expectedScalar.capture(), actual.capture(),
+		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.nullable(IParseLocation.class), elementName.capture(), expected.capture(), expectedScalar.capture(), actual.capture(),
 			actualScalar.capture());
-		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.any(IParseLocation.class), Mockito.eq("_id"), Mockito.eq(ValueType.OBJECT), expectedScalar.capture(), Mockito.eq(ValueType.SCALAR),
+		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.nullable(IParseLocation.class), Mockito.eq("_id"), Mockito.eq(ValueType.OBJECT), expectedScalar.capture(), Mockito.eq(ValueType.SCALAR),
 			actualScalar.capture());
-		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.any(IParseLocation.class), Mockito.eq("__v"), Mockito.eq(ValueType.OBJECT), expectedScalar.capture(), Mockito.eq(ValueType.SCALAR),
+		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.nullable(IParseLocation.class), Mockito.eq("__v"), Mockito.eq(ValueType.OBJECT), expectedScalar.capture(), Mockito.eq(ValueType.SCALAR),
 			actualScalar.capture());
-		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.any(IParseLocation.class), Mockito.eq("_status"), Mockito.eq(ValueType.OBJECT), expectedScalar.capture(),
+		verify(errorHandler, atLeastOnce()).incorrectJsonType(Mockito.nullable(IParseLocation.class), Mockito.eq("_status"), Mockito.eq(ValueType.OBJECT), expectedScalar.capture(),
 			Mockito.eq(ValueType.SCALAR), actualScalar.capture());
 
 		assertEquals("_id", elementName.getAllValues().get(0));

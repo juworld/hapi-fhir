@@ -13,6 +13,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -35,13 +36,13 @@ import java.util.List;
 public class RestHookWithEventDefinitionR4Test extends BaseResourceProviderR4Test {
 
 	private static final Logger ourLog = org.slf4j.LoggerFactory.getLogger(RestHookWithEventDefinitionR4Test.class);
-	private static List<Observation> ourUpdatedObservations = Lists.newArrayList();
-	private static List<String> ourContentTypes = new ArrayList<>();
-	private static List<String> ourHeaders = new ArrayList<>();
-	private static List<Observation> ourCreatedObservations = Lists.newArrayList();
+	private static List<Observation> ourUpdatedObservations = Collections.synchronizedList(Lists.newArrayList());
+	private static List<String> ourContentTypes = Collections.synchronizedList(new ArrayList<>());
+	private static List<String> ourHeaders = Collections.synchronizedList(new ArrayList<>());
+	private static List<Observation> ourCreatedObservations = Collections.synchronizedList(Lists.newArrayList());
 	private String myPatientId;
 	private String mySubscriptionId;
-	private List<IIdType> mySubscriptionIds = new ArrayList<>();
+	private List<IIdType> mySubscriptionIds = Collections.synchronizedList(new ArrayList<>());
 
 	@Override
 	@After
@@ -52,14 +53,14 @@ public class RestHookWithEventDefinitionR4Test extends BaseResourceProviderR4Tes
 	@After
 	public void afterUnregisterRestHookListener() {
 		for (IIdType next : mySubscriptionIds) {
-			myClient.delete().resourceById(next).execute();
+			ourClient.delete().resourceById(next).execute();
 		}
 		mySubscriptionIds.clear();
 
 		myDaoConfig.setAllowMultipleDelete(true);
 		ourLog.info("Deleting all subscriptions");
-		myClient.delete().resourceConditionalByUrl("Subscription?status=active").execute();
-		myClient.delete().resourceConditionalByUrl("Observation?code:missing=false").execute();
+		ourClient.delete().resourceConditionalByUrl("Subscription?status=active").execute();
+		ourClient.delete().resourceConditionalByUrl("Observation?code:missing=false").execute();
 		ourLog.info("Done deleting all subscriptions");
 		myDaoConfig.setAllowMultipleDelete(new DaoConfig().isAllowMultipleDelete());
 
@@ -83,7 +84,7 @@ public class RestHookWithEventDefinitionR4Test extends BaseResourceProviderR4Tes
 		 */
 
 		Patient patient = FhirR4Util.getPatient();
-		MethodOutcome methodOutcome = myClient.create().resource(patient).execute();
+		MethodOutcome methodOutcome = ourClient.create().resource(patient).execute();
 		myPatientId = methodOutcome.getId().getIdPart();
 
 		/*
@@ -95,9 +96,9 @@ public class RestHookWithEventDefinitionR4Test extends BaseResourceProviderR4Tes
 			.setPurpose("Monitor all admissions to Emergency")
 			.setTrigger(new TriggerDefinition()
 				.setType(TriggerDefinition.TriggerType.DATAADDED)
-				.setCondition(new TriggerDefinition.TriggerDefinitionConditionComponent()
+				.setCondition(new Expression()
 					.setDescription("Encounter Location = emergency (active/completed encounters, current or previous)")
-					.setLanguage(TriggerDefinition.ExpressionLanguage.TEXT_FHIRPATH)
+					.setLanguage(Expression.ExpressionLanguage.TEXT_FHIRPATH)
 					.setExpression("(this | %previous).location.where(location = 'Location/emergency' and status in {'active', 'completed'}).exists()")
 				)
 			);
@@ -114,7 +115,7 @@ public class RestHookWithEventDefinitionR4Test extends BaseResourceProviderR4Tes
 		channel.setPayload("application/json");
 		subscription.setChannel(channel);
 
-		methodOutcome = myClient.create().resource(subscription).execute();
+		methodOutcome = ourClient.create().resource(subscription).execute();
 		mySubscriptionId = methodOutcome.getId().getIdPart();
 
 	}

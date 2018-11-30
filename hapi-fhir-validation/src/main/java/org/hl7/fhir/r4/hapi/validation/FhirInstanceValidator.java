@@ -1,15 +1,21 @@
 package org.hl7.fhir.r4.hapi.validation;
 
-import java.io.StringReader;
-import java.util.*;
-
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-
+import ca.uhn.fhir.context.ConfigurationException;
+import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.rest.api.EncodingEnum;
+import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
+import ca.uhn.fhir.validation.IValidationContext;
+import ca.uhn.fhir.validation.IValidatorModule;
+import com.google.gson.*;
 import org.apache.commons.lang3.Validate;
+import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.exceptions.PathEngineException;
-import org.hl7.fhir.r4.hapi.ctx.*;
-import org.hl7.fhir.r4.model.*;
+import org.hl7.fhir.r4.hapi.ctx.DefaultProfileValidationSupport;
+import org.hl7.fhir.r4.hapi.ctx.HapiWorkerContext;
+import org.hl7.fhir.r4.hapi.ctx.IValidationSupport;
+import org.hl7.fhir.r4.model.Base;
+import org.hl7.fhir.r4.model.StructureDefinition;
+import org.hl7.fhir.r4.model.TypeDetails;
 import org.hl7.fhir.r4.utils.FHIRPathEngine.IEvaluationContext;
 import org.hl7.fhir.r4.utils.IResourceValidator.BestPracticeWarningLevel;
 import org.hl7.fhir.r4.utils.IResourceValidator.IdStatus;
@@ -21,14 +27,14 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
-import com.google.gson.*;
-
-import ca.uhn.fhir.context.ConfigurationException;
-import ca.uhn.fhir.context.FhirContext;
-import ca.uhn.fhir.rest.api.EncodingEnum;
-import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
-import ca.uhn.fhir.validation.IValidationContext;
-import ca.uhn.fhir.validation.IValidatorModule;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.StringReader;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class FhirInstanceValidator extends BaseValidatorBridge implements IValidatorModule {
 
@@ -44,7 +50,7 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 
 	/**
 	 * Constructor
-	 * 
+	 * <p>
 	 * Uses {@link DefaultProfileValidationSupport} for {@link IValidationSupport validation support}
 	 */
 	public FhirInstanceValidator() {
@@ -53,9 +59,8 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 
 	/**
 	 * Constructor which uses the given validation support
-	 * 
-	 * @param theValidationSupport
-	 *           The validation support
+	 *
+	 * @param theValidationSupport The validation support
 	 */
 	public FhirInstanceValidator(IValidationSupport theValidationSupport) {
 		myDocBuilderFactory = DocumentBuilderFactory.newInstance();
@@ -77,8 +82,32 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 		return root.getLocalName();
 	}
 
+	private ArrayList<String> determineIfProfilesSpecified(Document theDocument) {
+		ArrayList<String> profileNames = new ArrayList<String>();
+		NodeList list = theDocument.getChildNodes().item(0).getChildNodes();
+		for (int i = 0; i < list.getLength(); i++) {
+			if (list.item(i).getNodeName().compareToIgnoreCase("meta") == 0) {
+				NodeList metaList = list.item(i).getChildNodes();
+				for (int j = 0; j < metaList.getLength(); j++) {
+					if (metaList.item(j).getNodeName().compareToIgnoreCase("profile") == 0) {
+						profileNames.add(metaList.item(j).getAttributes().item(0).getNodeValue());
+					}
+				}
+				break;
+			}
+		}
+		return profileNames;
+	}
+
 	private StructureDefinition findStructureDefinitionForResourceName(final FhirContext theCtx, String resourceName) {
-		String sdName = "http://hl7.org/fhir/StructureDefinition/" + resourceName;
+		String sdName = null;
+		try {
+			// Test if a URL was passed in specifying the structure definition and test if "StructureDefinition" is part of the URL
+			URL testIfUrl = new URL(resourceName);
+			sdName = resourceName;
+		} catch (MalformedURLException e) {
+			sdName = "http://hl7.org/fhir/StructureDefinition/" + resourceName;
+		}
 		StructureDefinition profile = myStructureDefintion != null ? myStructureDefintion : myValidationSupport.fetchStructureDefinition(theCtx, sdName);
 		return profile;
 	}
@@ -91,11 +120,28 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 	 * reported at the ERROR level. If this setting is set to {@link BestPracticeWarningLevel#Ignore}, best practice
 	 * guielines will be ignored.
 	 * </p>
-	 * 
+	 *
 	 * @see {@link #setBestPracticeWarningLevel(BestPracticeWarningLevel)}
 	 */
 	public BestPracticeWarningLevel getBestPracticeWarningLevel() {
 		return myBestPracticeWarningLevel;
+	}
+
+	/**
+	 * Sets the "best practice warning level". When validating, any deviations from best practices will be reported at
+	 * this level.
+	 * <p>
+	 * The FHIR Instance Validator has a number of checks for best practices in terms of FHIR usage. If this setting is
+	 * set to {@link BestPracticeWarningLevel#Error}, any resource data which does not meet these best practices will be
+	 * reported at the ERROR level. If this setting is set to {@link BestPracticeWarningLevel#Ignore}, best practice
+	 * guielines will be ignored.
+	 * </p>
+	 *
+	 * @param theBestPracticeWarningLevel The level, must not be <code>null</code>
+	 */
+	public void setBestPracticeWarningLevel(BestPracticeWarningLevel theBestPracticeWarningLevel) {
+		Validate.notNull(theBestPracticeWarningLevel);
+		myBestPracticeWarningLevel = theBestPracticeWarningLevel;
 	}
 
 	/**
@@ -104,6 +150,14 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 	 */
 	public IValidationSupport getValidationSupport() {
 		return myValidationSupport;
+	}
+
+	/**
+	 * Sets the {@link IValidationSupport validation support} in use by this validator. Default is an instance of
+	 * {@link DefaultProfileValidationSupport} if the no-arguments constructor for this object was used.
+	 */
+	public void setValidationSupport(IValidationSupport theValidationSupport) {
+		myValidationSupport = theValidationSupport;
 	}
 
 	/**
@@ -116,13 +170,6 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 	}
 
 	/**
-	 * If set to {@literal true} (default is false) the valueSet will not be validate
-	 */
-	public boolean isNoTerminologyChecks() {
-		return myNoTerminologyChecks;
-	}
-
-	/**
 	 * If set to {@literal true} (default is true) extensions which are not known to the
 	 * validator (e.g. because they have not been explicitly declared in a profile) will
 	 * be validated but will not cause an error.
@@ -132,21 +179,10 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 	}
 
 	/**
-	 * Sets the "best practice warning level". When validating, any deviations from best practices will be reported at
-	 * this level.
-	 * <p>
-	 * The FHIR Instance Validator has a number of checks for best practices in terms of FHIR usage. If this setting is
-	 * set to {@link BestPracticeWarningLevel#Error}, any resource data which does not meet these best practices will be
-	 * reported at the ERROR level. If this setting is set to {@link BestPracticeWarningLevel#Ignore}, best practice
-	 * guielines will be ignored.
-	 * </p>
-	 * 
-	 * @param theBestPracticeWarningLevel
-	 *           The level, must not be <code>null</code>
+	 * If set to {@literal true} (default is false) the valueSet will not be validate
 	 */
-	public void setBestPracticeWarningLevel(BestPracticeWarningLevel theBestPracticeWarningLevel) {
-		Validate.notNull(theBestPracticeWarningLevel);
-		myBestPracticeWarningLevel = theBestPracticeWarningLevel;
+	public boolean isNoTerminologyChecks() {
+		return myNoTerminologyChecks;
 	}
 
 	/**
@@ -158,14 +194,6 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 
 	public void setStructureDefintion(StructureDefinition theStructureDefintion) {
 		myStructureDefintion = theStructureDefintion;
-	}
-
-	/**
-	 * Sets the {@link IValidationSupport validation support} in use by this validator. Default is an instance of
-	 * {@link DefaultProfileValidationSupport} if the no-arguments constructor for this object was used.
-	 */
-	public void setValidationSupport(IValidationSupport theValidationSupport) {
-		myValidationSupport = theValidationSupport;
 	}
 
 	protected List<ValidationMessage> validate(final FhirContext theCtx, String theInput, EncodingEnum theEncoding) {
@@ -200,26 +228,66 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 				return Collections.singletonList(m);
 			}
 
-			String resourceName = determineResourceName(document);
-			StructureDefinition profile = findStructureDefinitionForResourceName(theCtx, resourceName);
-			if (profile != null) {
-				try {
-					v.validate(null, messages, document, profile);
-				} catch (Exception e) {
-					throw new InternalErrorException("Unexpected failure while validating resource", e);
+			// Determine if meta/profiles are present...
+			ArrayList<String> resourceNames = determineIfProfilesSpecified(document);
+			if (resourceNames.isEmpty()) {
+				resourceNames.add(determineResourceName(document));
+			}
+
+			for (String resourceName : resourceNames) {
+				StructureDefinition profile = findStructureDefinitionForResourceName(theCtx, resourceName);
+				if (profile != null) {
+					try {
+						v.validate(null, messages, document, profile.getUrl());
+					} catch (Exception e) {
+						ourLog.error("Failure during validation", e);
+						throw new InternalErrorException("Unexpected failure while validating resource", e);
+					}
+				} else {
+					profile = findStructureDefinitionForResourceName(theCtx, determineResourceName(document));
+					if (profile != null) {
+						try {
+							v.validate(null, messages, document, profile.getUrl());
+						} catch (Exception e) {
+							ourLog.error("Failure during validation", e);
+							throw new InternalErrorException("Unexpected failure while validating resource", e);
+						}
+					}
 				}
 			}
 		} else if (theEncoding == EncodingEnum.JSON) {
 			Gson gson = new GsonBuilder().create();
 			JsonObject json = gson.fromJson(theInput, JsonObject.class);
 
-			String resourceName = json.get("resourceType").getAsString();
-			StructureDefinition profile = findStructureDefinitionForResourceName(theCtx, resourceName);
-			if (profile != null) {
-				try {
-					v.validate(null, messages, json, profile);
-				} catch (Exception e) {
-					throw new InternalErrorException("Unexpected failure while validating resource", e);
+			ArrayList<String> resourceNames = new ArrayList<String>();
+			JsonArray profiles = null;
+			try {
+				profiles = json.getAsJsonObject("meta").getAsJsonArray("profile");
+				for (JsonElement element : profiles) {
+					resourceNames.add(element.getAsString());
+				}
+			} catch (Exception e) {
+				resourceNames.add(json.get("resourceType").getAsString());
+			}
+
+			for (String resourceName : resourceNames) {
+				StructureDefinition profile = findStructureDefinitionForResourceName(theCtx, resourceName);
+				if (profile != null) {
+					try {
+						v.validate(null, messages, json, profile.getUrl());
+					} catch (Exception e) {
+						throw new InternalErrorException("Unexpected failure while validating resource", e);
+					}
+				} else {
+					profile = findStructureDefinitionForResourceName(theCtx, json.get("resourceType").getAsString());
+					if (profile != null) {
+						try {
+							v.validate(null, messages, json, profile.getUrl());
+						} catch (Exception e) {
+							ourLog.error("Failure during validation", e);
+							throw new InternalErrorException("Unexpected failure while validating resource", e);
+						}
+					}
 				}
 			}
 		} else {
@@ -276,6 +344,11 @@ public class FhirInstanceValidator extends BaseValidatorBridge implements IValid
 		@Override
 		public Base resolveReference(Object theAppContext, String theUrl) {
 			return null;
+		}
+
+		@Override
+		public boolean conformsToProfile(Object appContext, Base item, String url) throws FHIRException {
+			return false;
 		}
 
 	}

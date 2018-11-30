@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import ca.uhn.fhir.rest.param.ReferenceParam;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
@@ -65,7 +66,7 @@ public class AuthorizationInterceptorDstu2Test {
 	@Before
 	public void before() {
 		ourCtx.setAddProfileTagWhenEncoding(AddProfileTagEnum.NEVER);
-		for (IServerInterceptor next : new ArrayList<IServerInterceptor>(ourServlet.getInterceptors())) {
+		for (IServerInterceptor next : new ArrayList<>(ourServlet.getInterceptors())) {
 			ourServlet.unregisterInterceptor(next);
 		}
 		ourReturn = null;
@@ -127,12 +128,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.deny("Rule 1").read().resourcesOfType(Patient.class).withAnyId().andThen()
 					.allowAll("Default Rule")
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -238,13 +237,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").transaction().withAnyOperation().andApplyNormalRules().andThen()
 					.allow("Rule 2").write().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").read().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -265,7 +262,7 @@ public class AuthorizationInterceptorDstu2Test {
 		httpPost.setEntity(createFhirResourceEntity(input));
 		status = ourClient.execute(httpPost);
 		extractResponseAndClose(status);
-		assertEquals(403, status.getStatusLine().getStatusCode());
+		assertEquals(200, status.getStatusLine().getStatusCode());
 	}
 
 	@Test
@@ -273,13 +270,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").transaction().withAnyOperation().andApplyNormalRules().andThen()
 					.allow("Rule 2").write().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").read().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -308,13 +303,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").transaction().withAnyOperation().andApplyNormalRules().andThen()
 					.allow("Rule 2").write().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").read().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -345,12 +338,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").delete().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").delete().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -379,12 +370,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow().read().resourcesOfType(Patient.class).withAnyId().andThen()
 					.denyAll("Default Rule")
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -500,11 +489,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").read().allResources().withAnyId()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -540,11 +527,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").metadata()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -564,11 +549,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.ALLOW) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.deny("Rule 1").metadata()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -588,11 +571,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("RULE 1").operation().withAnyName().onServer().andThen()
+					.allow("RULE 1").operation().withAnyName().onServer().andRequireExplicitResponseAuthorization().andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -616,11 +597,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("Rule 1").operation().named("everything").onInstancesOfType(Patient.class)
+					.allow("Rule 1").operation().named("everything").onInstancesOfType(Patient.class).andRequireExplicitResponseAuthorization()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -653,12 +632,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("Rule 1").operation().named("everything").onInstancesOfType(Patient.class).andThen()
+					.allow("Rule 1").operation().named("everything").onInstancesOfType(Patient.class).andRequireExplicitResponseAuthorization().andThen()
 					.allow("Rule 2").read().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -693,11 +670,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("Rule 1").operation().named("everything").onInstancesOfType(Patient.class)
+					.allow("Rule 1").operation().named("everything").onInstancesOfType(Patient.class).andRequireExplicitResponseAuthorization()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -729,11 +704,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("RULE 1").operation().named("opName").onInstance(new IdDt("http://example.com/Patient/1/_history/2")).andThen()
+					.allow("RULE 1").operation().named("opName").onInstance(new IdDt("http://example.com/Patient/1/_history/2")).andRequireExplicitResponseAuthorization().andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -791,7 +764,7 @@ public class AuthorizationInterceptorDstu2Test {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
 				return new RuleBuilder()
-						.allow("RULE 1").operation().named("opName").onAnyInstance().andThen()
+						.allow("RULE 1").operation().named("opName").onAnyInstance().andRequireExplicitResponseAuthorization().andThen()
 						.build();
 			}
 		});
@@ -859,11 +832,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
+				
 				return new RuleBuilder()
 					.allow("RULE 1").write().allResources().withAnyId().andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -917,11 +889,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("RULE 1").operation().named("opName").onServer().andThen()
+					.allow("RULE 1").operation().named("opName").onServer().andRequireExplicitResponseAuthorization().andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -966,11 +936,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("RULE 1").operation().named("opName").onType(Patient.class).andThen()
+					.allow("RULE 1").operation().named("opName").onType(Patient.class).andRequireExplicitResponseAuthorization().andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1037,11 +1005,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
-					.allow("RULE 1").operation().named("opName").onAnyType().andThen()
+					.allow("RULE 1").operation().named("opName").onAnyType().andRequireExplicitResponseAuthorization().andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1107,11 +1073,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").read().resourcesOfType(Patient.class).withAnyId()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1172,12 +1136,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").read().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").read().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1205,8 +1167,8 @@ public class AuthorizationInterceptorDstu2Test {
 		httpGet = new HttpGet("http://localhost:" + ourPort + "/Patient");
 		status = ourClient.execute(httpGet);
 		extractResponseAndClose(status);
-		assertEquals(200, status.getStatusLine().getStatusCode());
-		assertTrue(ourHitMethod);
+		assertEquals(403, status.getStatusLine().getStatusCode());
+		assertFalse(ourHitMethod);
 
 	}
 
@@ -1216,8 +1178,8 @@ public class AuthorizationInterceptorDstu2Test {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
 				return new RuleBuilder()
-						.allow("Rule 1").read().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1"))
-						.build();
+					.allow("Rule 1").read().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
+					.build();
 			}
 		});
 
@@ -1226,13 +1188,13 @@ public class AuthorizationInterceptorDstu2Test {
 		String respString;
 		Bundle respBundle;
 
-		ourReturn = new ArrayList<IResource>();
+		ourReturn = new ArrayList<>();
 		for (int i = 0; i < 10; i++) {
-			ourReturn.add(createPatient(1));
+			ourReturn.add(createObservation(i, "Patient/1"));
 		}
 
 		ourHitMethod = false;
-		httpGet = new HttpGet("http://localhost:" + ourPort + "/Patient?_count=5&_format=json");
+		httpGet = new HttpGet("http://localhost:" + ourPort + "/Observation?_count=5&_format=json&subject=Patient/1");
 		status = ourClient.execute(httpGet);
 		respString = extractResponseAndClose(status);
 		assertEquals(200, status.getStatusLine().getStatusCode());
@@ -1240,7 +1202,7 @@ public class AuthorizationInterceptorDstu2Test {
 		respBundle = ourCtx.newJsonParser().parseResource(Bundle.class, respString);
 		assertEquals(5, respBundle.getEntry().size());
 		assertEquals(10, respBundle.getTotal().intValue());
-		assertEquals("Patient/1", respBundle.getEntry().get(0).getResource().getIdElement().toUnqualifiedVersionless().getValue());
+		assertEquals("Observation/0", respBundle.getEntry().get(0).getResource().getIdElement().toUnqualifiedVersionless().getValue());
 		assertNotNull(respBundle.getLink("next"));
 
 		// Load next page
@@ -1254,7 +1216,7 @@ public class AuthorizationInterceptorDstu2Test {
 		respBundle = ourCtx.newJsonParser().parseResource(Bundle.class, respString);
 		assertEquals(5, respBundle.getEntry().size());
 		assertEquals(10, respBundle.getTotal().intValue());
-		assertEquals("Patient/1", respBundle.getEntry().get(0).getResource().getIdElement().toUnqualifiedVersionless().getValue());
+		assertEquals("Observation/5", respBundle.getEntry().get(0).getResource().getIdElement().toUnqualifiedVersionless().getValue());
 		assertNull(respBundle.getLink("next"));
 
 	}
@@ -1265,8 +1227,8 @@ public class AuthorizationInterceptorDstu2Test {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
 				return new RuleBuilder()
-						.allow("Rule 1").read().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1"))
-						.build();
+					.allow("Rule 1").read().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
+					.build();
 			}
 		});
 
@@ -1275,16 +1237,16 @@ public class AuthorizationInterceptorDstu2Test {
 		String respString;
 		Bundle respBundle;
 
-		ourReturn = new ArrayList<IResource>();
+		ourReturn = new ArrayList<>();
 		for (int i = 0; i < 5; i++) {
-			ourReturn.add(createPatient(1));
+			ourReturn.add(createObservation(i, "Patient/1"));
 		}
-		for (int i = 0; i < 5; i++) {
-			ourReturn.add(createPatient(2));
+		for (int i = 5; i < 10; i++) {
+			ourReturn.add(createObservation(i, "Patient/2"));
 		}
 
 		ourHitMethod = false;
-		httpGet = new HttpGet("http://localhost:" + ourPort + "/Patient?_count=5&_format=json");
+		httpGet = new HttpGet("http://localhost:" + ourPort + "/Observation?_count=5&_format=json&subject=Patient/1");
 		status = ourClient.execute(httpGet);
 		respString = extractResponseAndClose(status);
 		assertEquals(200, status.getStatusLine().getStatusCode());
@@ -1292,7 +1254,7 @@ public class AuthorizationInterceptorDstu2Test {
 		respBundle = ourCtx.newJsonParser().parseResource(Bundle.class, respString);
 		assertEquals(5, respBundle.getEntry().size());
 		assertEquals(10, respBundle.getTotal().intValue());
-		assertEquals("Patient/1", respBundle.getEntry().get(0).getResource().getIdElement().toUnqualifiedVersionless().getValue());
+		assertEquals("Observation/0", respBundle.getEntry().get(0).getResource().getIdElement().toUnqualifiedVersionless().getValue());
 		assertNotNull(respBundle.getLink("next"));
 
 		// Load next page
@@ -1300,7 +1262,7 @@ public class AuthorizationInterceptorDstu2Test {
 		ourHitMethod = false;
 		httpGet = new HttpGet(respBundle.getLink("next").getUrl());
 		status = ourClient.execute(httpGet);
-		respString = extractResponseAndClose(status);
+		extractResponseAndClose(status);
 		assertEquals(403, status.getStatusLine().getStatusCode());
 		assertFalse(ourHitMethod);
 
@@ -1311,12 +1273,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").read().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").read().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1324,7 +1284,7 @@ public class AuthorizationInterceptorDstu2Test {
 		HttpResponse status;
 		String response;
 
-		ourReturn = Arrays.asList(createPatient(2));
+		ourReturn = Collections.singletonList(createPatient(2));
 		ourHitMethod = false;
 		httpGet = new HttpGet("http://localhost:" + ourPort + "/Patient/2");
 		status = ourClient.execute(httpGet);
@@ -1332,9 +1292,9 @@ public class AuthorizationInterceptorDstu2Test {
 		ourLog.info(response);
 		assertThat(response, containsString("Access denied by default policy (no applicable rules)"));
 		assertEquals(403, status.getStatusLine().getStatusCode());
-		assertTrue(ourHitMethod);
+		assertFalse(ourHitMethod);
 
-		ourReturn = Arrays.asList(createObservation(10, "Patient/2"));
+		ourReturn = Collections.singletonList(createObservation(10, "Patient/2"));
 		ourHitMethod = false;
 		httpGet = new HttpGet("http://localhost:" + ourPort + "/Observation/10");
 		status = ourClient.execute(httpGet);
@@ -1344,7 +1304,7 @@ public class AuthorizationInterceptorDstu2Test {
 		assertEquals(403, status.getStatusLine().getStatusCode());
 		assertTrue(ourHitMethod);
 
-		ourReturn = Arrays.asList(createCarePlan(10, "Patient/2"));
+		ourReturn = Collections.singletonList(createCarePlan(10, "Patient/2"));
 		ourHitMethod = false;
 		httpGet = new HttpGet("http://localhost:" + ourPort + "/CarePlan/10");
 		status = ourClient.execute(httpGet);
@@ -1362,7 +1322,7 @@ public class AuthorizationInterceptorDstu2Test {
 		ourLog.info(response);
 		assertThat(response, containsString("Access denied by default policy (no applicable rules)"));
 		assertEquals(403, status.getStatusLine().getStatusCode());
-		assertTrue(ourHitMethod);
+		assertFalse(ourHitMethod);
 
 		ourReturn = Arrays.asList(createPatient(2), createObservation(10, "Patient/1"));
 		ourHitMethod = false;
@@ -1372,7 +1332,7 @@ public class AuthorizationInterceptorDstu2Test {
 		ourLog.info(response);
 		assertThat(response, containsString("Access denied by default policy (no applicable rules)"));
 		assertEquals(403, status.getStatusLine().getStatusCode());
-		assertTrue(ourHitMethod);
+		assertFalse(ourHitMethod);
 
 	}
 
@@ -1381,13 +1341,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").transaction().withAnyOperation().andApplyNormalRules().andThen()
 					.allow("Rule 2").write().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").read().allResources().inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1402,7 +1360,7 @@ public class AuthorizationInterceptorDstu2Test {
 		HttpPost httpPost;
 		HttpResponse status;
 
-		ourReturn = Arrays.asList((IResource) output);
+		ourReturn = Collections.singletonList(output);
 		ourHitMethod = false;
 		httpPost = new HttpPost("http://localhost:" + ourPort + "/");
 		httpPost.setEntity(createFhirResourceEntity(input));
@@ -1416,13 +1374,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 1b").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1123")).andThen()
 					.allow("Rule 2").write().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1464,6 +1420,7 @@ public class AuthorizationInterceptorDstu2Test {
 		httpPost.setEntity(createFhirResourceEntity(createObservation(null, "Patient/1")));
 		status = ourClient.execute(httpPost);
 		response = extractResponseAndClose(status);
+		ourLog.debug(response);
 		assertEquals(201, status.getStatusLine().getStatusCode());
 		assertTrue(ourHitMethod);
 	}
@@ -1475,12 +1432,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").createConditional().resourcesOfType(Patient.class)
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1506,19 +1461,17 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").delete().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").deleteConditional().resourcesOfType(Patient.class)
 					.build();
-				//@formatter:on
 			}
 		});
 
 		HttpDelete httpDelete;
 		HttpResponse status;
 
-		ourReturn = Arrays.asList(createPatient(1));
+		ourReturn = Collections.singletonList(createPatient(1));
 
 		ourHitMethod = false;
 		httpDelete = new HttpDelete("http://localhost:" + ourPort + "/Patient?foo=bar");
@@ -1537,18 +1490,16 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 2").deleteConditional().resourcesOfType(Patient.class)
 					.build();
-				//@formatter:on
 			}
 		});
 
 		HttpDelete httpDelete;
 		HttpResponse status;
 
-		ourReturn = Arrays.asList(createPatient(1));
+		ourReturn = Collections.singletonList(createPatient(1));
 
 		ourHitMethod = false;
 		httpDelete = new HttpDelete("http://localhost:" + ourPort + "/Patient?foo=bar");
@@ -1565,12 +1516,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").write().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1578,7 +1527,7 @@ public class AuthorizationInterceptorDstu2Test {
 		HttpResponse status;
 
 		ourHitMethod = false;
-		ourReturn = Arrays.asList(createPatient(2));
+		ourReturn = Collections.singletonList(createPatient(2));
 		httpDelete = new HttpDelete("http://localhost:" + ourPort + "/Patient/2");
 		status = ourClient.execute(httpDelete);
 		extractResponseAndClose(status);
@@ -1586,7 +1535,7 @@ public class AuthorizationInterceptorDstu2Test {
 		assertTrue(ourHitMethod);
 
 		ourHitMethod = false;
-		ourReturn = Arrays.asList(createPatient(1));
+		ourReturn = Collections.singletonList(createPatient(1));
 		httpDelete = new HttpDelete("http://localhost:" + ourPort + "/Patient/1");
 		status = ourClient.execute(httpDelete);
 		extractResponseAndClose(status);
@@ -1599,12 +1548,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").write().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1"))
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1673,13 +1620,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").write().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 3").updateConditional().resourcesOfType(Patient.class)
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1705,13 +1650,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").write().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 3").updateConditional().resourcesOfType(Patient.class)
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1724,6 +1667,7 @@ public class AuthorizationInterceptorDstu2Test {
 		httpPost.setEntity(createFhirResourceEntity(createPatient(null)));
 		status = ourClient.execute(httpPost);
 		response = extractResponseAndClose(status);
+		ourLog.debug(response);
 		assertEquals(200, status.getStatusLine().getStatusCode());
 		assertTrue(ourHitMethod);
 
@@ -1745,13 +1689,11 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().resourcesOfType(Patient.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 2").write().resourcesOfType(Observation.class).inCompartment("Patient", new IdDt("Patient/1")).andThen()
 					.allow("Rule 3").updateConditional().allResources()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1764,6 +1706,7 @@ public class AuthorizationInterceptorDstu2Test {
 		httpPost.setEntity(createFhirResourceEntity(createPatient(null)));
 		status = ourClient.execute(httpPost);
 		response = extractResponseAndClose(status);
+		ourLog.debug(response);
 		assertEquals(200, status.getStatusLine().getStatusCode());
 		assertTrue(ourHitMethod);
 
@@ -1779,7 +1722,7 @@ public class AuthorizationInterceptorDstu2Test {
 	}
 
 	@Test
-	public void testInvalidInstanceIds() throws Exception {
+	public void testInvalidInstanceIds() {
 		try {
 			new RuleBuilder().allow("Rule 1").write().instance((String) null);
 			fail();
@@ -1825,11 +1768,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
+					.allow().patch().allRequests().andThen()
 					.allow("Rule 1").write().instance("Patient/900").andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1844,16 +1786,9 @@ public class AuthorizationInterceptorDstu2Test {
 		httpPost.setEntity(new StringEntity(input, ContentType.parse("application/json-patch+json")));
 		status = ourClient.execute(httpPost);
 		response = extractResponseAndClose(status);
-		assertEquals(204, status.getStatusLine().getStatusCode());
+		assertEquals(200, status.getStatusLine().getStatusCode());
 		assertTrue(ourHitMethod);
 
-		ourHitMethod = false;
-		httpPost = new HttpPatch("http://localhost:" + ourPort + "/Patient/999");
-		httpPost.setEntity(new StringEntity(input, ContentType.parse("application/json-patch+json")));
-		status = ourClient.execute(httpPost);
-		response = extractResponseAndClose(status);
-		assertEquals(403, status.getStatusLine().getStatusCode());
-		assertFalse(ourHitMethod);
 	}
 
 	@Test
@@ -1863,12 +1798,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").write().instance("Observation/900").andThen()
 					.allow("Rule 1").write().instance("901").andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -1919,12 +1852,10 @@ public class AuthorizationInterceptorDstu2Test {
 		ourServlet.registerInterceptor(new AuthorizationInterceptor(PolicyEnum.DENY) {
 			@Override
 			public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-				//@formatter:off
 				return new RuleBuilder()
 					.allow("Rule 1").read().instance("Observation/900").andThen()
 					.allow("Rule 1").read().instance("901").andThen()
 					.build();
-				//@formatter:on
 			}
 		});
 
@@ -2076,7 +2007,7 @@ public class AuthorizationInterceptorDstu2Test {
 		}
 
 		@Search()
-		public List<IResource> search() {
+		public List<IResource> search(@OptionalParam(name="subject")ReferenceParam theSubject) {
 			ourHitMethod = true;
 			return ourReturn;
 		}
@@ -2103,6 +2034,7 @@ public class AuthorizationInterceptorDstu2Test {
 
 	}
 
+	@SuppressWarnings("unused")
 	public static class DummyPatientResourceProvider implements IResourceProvider {
 
 		@Create()

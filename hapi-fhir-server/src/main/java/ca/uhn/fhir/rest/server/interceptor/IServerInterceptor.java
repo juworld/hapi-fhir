@@ -262,6 +262,10 @@ public interface IServerInterceptor {
 	 * This method is called after all processing is completed for a request, but only if the
 	 * request completes normally (i.e. no exception is thrown).
 	 * <p>
+	 * This method should not throw any exceptions. Any exception that is thrown by this
+	 * method will be logged, but otherwise not acted upon.
+	 * </p>
+	 * <p>
 	 * Note that this individual interceptors will have this method called in the reverse order from the order in
 	 * which the interceptors were registered with the server.
 	 * </p>

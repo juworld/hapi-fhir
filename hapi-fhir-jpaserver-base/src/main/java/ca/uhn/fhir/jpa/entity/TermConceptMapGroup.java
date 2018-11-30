@@ -38,7 +38,7 @@ public class TermConceptMapGroup implements Serializable {
 	private Long myId;
 
 	@ManyToOne()
-	@JoinColumn(name = "CONCEPT_MAP_PID", nullable = false, referencedColumnName = "PID", foreignKey=@ForeignKey(name="FK_TCMGROUP_CONCEPTMAP"))
+	@JoinColumn(name = "CONCEPT_MAP_PID", nullable = false, referencedColumnName = "PID", foreignKey = @ForeignKey(name = "FK_TCMGROUP_CONCEPTMAP"))
 	private TermConceptMap myConceptMap;
 
 	@Column(name = "SOURCE_URL", nullable = false, length = 200)
@@ -137,12 +137,12 @@ public class TermConceptMapGroup implements Serializable {
 	public String toString() {
 		return new ToStringBuilder(this, ToStringStyle.MULTI_LINE_STYLE)
 			.append("myId", myId)
-			.append("myConceptMap - id", myConceptMap.getId())
+			.append(myConceptMap != null ? ("myConceptMap - id=" + myConceptMap.getId()) : ("myConceptMap=(null)"))
 			.append("mySource", mySource)
 			.append("mySourceVersion", mySourceVersion)
 			.append("myTarget", myTarget)
 			.append("myTargetVersion", myTargetVersion)
-			.append("myConceptMapGroupElements - size", myConceptMapGroupElements.size())
+			.append(myConceptMapGroupElements != null ? ("myConceptMapGroupElements - size=" + myConceptMapGroupElements.size()) : ("myConceptMapGroupElements=(null)"))
 			.append("myConceptMapUrl", this.getConceptMapUrl())
 			.append("mySourceValueSet", this.getSourceValueSet())
 			.append("myTargetValueSet", this.getTargetValueSet())

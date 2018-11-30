@@ -1,5 +1,6 @@
 package ca.uhn.fhir.jpa.provider.r4;
 
+import ca.uhn.fhir.jpa.provider.dstu3.TerminologyUploaderProviderDstu3Test;
 import ca.uhn.fhir.jpa.term.IHapiTerminologyLoaderSvc;
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import ca.uhn.fhir.util.TestUtil;
@@ -25,19 +26,6 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 
 	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(TerminologyUploaderProviderR4Test.class);
 
-	private byte[] createLoincZip() throws IOException {
-		ByteArrayOutputStream bos = new ByteArrayOutputStream();
-		ZipOutputStream zos = new ZipOutputStream(bos);
-
-		zos.putNextEntry(new ZipEntry("loinc.csv"));
-		zos.write(IOUtils.toByteArray(getClass().getResourceAsStream("/loinc/loinc.csv")));
-		zos.putNextEntry(new ZipEntry("LOINC_2.54_MULTI-AXIAL_HIERARCHY.CSV"));
-		zos.write(IOUtils.toByteArray(getClass().getResourceAsStream("/loinc/LOINC_2.54_MULTI-AXIAL_HIERARCHY.CSV")));
-		zos.close();
-
-		byte[] packageBytes = bos.toByteArray();
-		return packageBytes;
-	}
 
 	private byte[] createSctZip() throws IOException {
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -59,7 +47,7 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 
 		//@formatter:off
 		try {
-			myClient
+			ourClient
 				.operation()
 				.onServer()
 				.named("upload-external-code-system")
@@ -75,10 +63,10 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 
 	@Test
 	public void testUploadLoinc() throws Exception {
-		byte[] packageBytes = createLoincZip();
+		byte[] packageBytes = TerminologyUploaderProviderDstu3Test.createLoincZip();
 
 		//@formatter:off
-		Parameters respParam = myClient
+		Parameters respParam = ourClient
 			.operation()
 			.onServer()
 			.named("upload-external-code-system")
@@ -98,7 +86,7 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 		 */
 
 		//@formatter:off
-		respParam = myClient
+		respParam = ourClient
 			.operation()
 			.onServer()
 			.named("upload-external-code-system")
@@ -113,10 +101,10 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 	}
 
 	@Test
-	public void testUploadMissingPackage() throws Exception {
+	public void testUploadMissingPackage() {
 		//@formatter:off
 		try {
-			myClient
+			ourClient
 				.operation()
 				.onServer()
 				.named("upload-external-code-system")
@@ -135,7 +123,7 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 
 		//@formatter:off
 		try {
-			myClient
+			ourClient
 				.operation()
 				.onServer()
 				.named("upload-external-code-system")
@@ -153,7 +141,7 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 		byte[] packageBytes = createSctZip();
 
 		//@formatter:off
-		Parameters respParam = myClient
+		Parameters respParam = ourClient
 			.operation()
 			.onServer()
 			.named("upload-external-code-system")
@@ -179,7 +167,7 @@ public class TerminologyUploaderProviderR4Test extends BaseResourceProviderR4Tes
 		fos.close();
 
 		//@formatter:off
-		Parameters respParam = myClient
+		Parameters respParam = ourClient
 			.operation()
 			.onServer()
 			.named("upload-external-code-system")

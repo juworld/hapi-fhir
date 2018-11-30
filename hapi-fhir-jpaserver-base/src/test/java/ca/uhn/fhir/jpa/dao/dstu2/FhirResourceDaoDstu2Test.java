@@ -3,7 +3,7 @@ package ca.uhn.fhir.jpa.dao.dstu2;
 import static org.apache.commons.lang3.StringUtils.defaultString;
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import java.io.IOException;
@@ -319,7 +319,7 @@ public class FhirResourceDaoDstu2Test extends BaseJpaDstu2Test {
 			myBundleDao.create(bundle, mySrd);
 			fail();
 		} catch (UnprocessableEntityException e) {
-			assertEquals("Unable to store a Bundle resource on this server with a Bundle.type of: (missing)", e.getMessage());
+			assertEquals("Unable to store a Bundle resource on this server with a Bundle.type value of: (missing)", e.getMessage());
 		}
 
 		bundle = new Bundle();
@@ -329,7 +329,7 @@ public class FhirResourceDaoDstu2Test extends BaseJpaDstu2Test {
 			myBundleDao.create(bundle, mySrd);
 			fail();
 		} catch (UnprocessableEntityException e) {
-			assertEquals("Unable to store a Bundle resource on this server with a Bundle.type of: batch-response", e.getMessage());
+			assertEquals("Unable to store a Bundle resource on this server with a Bundle.type value of: batch-response", e.getMessage());
 		}
 
 		bundle = new Bundle();
@@ -385,7 +385,7 @@ public class FhirResourceDaoDstu2Test extends BaseJpaDstu2Test {
 		p.addName().addFamily("Hello");
 
 		TagList tl = new TagList();
-		tl.addTag(Constants.TAG_SUBSETTED_SYSTEM, Constants.TAG_SUBSETTED_CODE);
+		tl.addTag(Constants.TAG_SUBSETTED_SYSTEM_DSTU3, Constants.TAG_SUBSETTED_CODE);
 		ResourceMetadataKeyEnum.TAG_LIST.put(p, tl);
 
 		try {
@@ -2435,6 +2435,8 @@ public class FhirResourceDaoDstu2Test extends BaseJpaDstu2Test {
 		assertThat(actual, contains(id3, id2, id1));
 	}
 
+	@Test
+	@Ignore
 	public void testSortByQuantity() {
 		Observation res;
 
@@ -2700,6 +2702,8 @@ public class FhirResourceDaoDstu2Test extends BaseJpaDstu2Test {
 
 	}
 
+	@Test
+	@Ignore
 	public void testSortByUri() {
 		ConceptMap res = new ConceptMap();
 		res.addElement().addTarget().addDependsOn().setElement("http://foo2");

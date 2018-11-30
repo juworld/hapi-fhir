@@ -20,45 +20,44 @@ package ca.uhn.fhir.jpa.util;
  * #L%
  */
 
-import static org.apache.commons.lang3.StringUtils.isBlank;
-import static org.apache.commons.lang3.StringUtils.isNotBlank;
+import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.reflect.ClassPath;
+import com.google.common.reflect.ClassPath.ClassInfo;
+import org.apache.commons.lang3.Validate;
 
+import javax.persistence.*;
 import java.io.IOException;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.util.HashSet;
 import java.util.Set;
 
-import javax.persistence.*;
-
-import org.apache.commons.lang3.Validate;
-
-import com.google.common.collect.ImmutableSet;
-import com.google.common.reflect.ClassPath;
-import com.google.common.reflect.ClassPath.ClassInfo;
-
-import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
+import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 public class TestUtil {
 	private static final int MAX_LENGTH = 30;
 	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(TestUtil.class);
 
-	/** non instantiable */
+	/**
+	 * non instantiable
+	 */
 	private TestUtil() {
 		super();
 	}
-	
+
 	/**
 	 * This is really only useful for unit tests, do not call otherwise
 	 */
 	public static void scanEntities(String packageName) throws IOException, ClassNotFoundException {
 		ImmutableSet<ClassInfo> classes = ClassPath.from(TestUtil.class.getClassLoader()).getTopLevelClasses(packageName);
 		Set<String> names = new HashSet<String>();
-		
+
 		if (classes.size() <= 1) {
 			throw new InternalErrorException("Found no classes");
 		}
-		
+
 		for (ClassInfo classInfo : classes) {
 			Class<?> clazz = Class.forName(classInfo.getName());
 			Entity entity = clazz.getAnnotation(Entity.class);
@@ -79,6 +78,14 @@ public class TestUtil {
 		for (Field nextField : theClazz.getDeclaredFields()) {
 			ourLog.info(" * Scanning field: {}", nextField.getName());
 			scan(nextField, theNames, theIsSuperClass);
+
+			Lob lobClass = nextField.getAnnotation(Lob.class);
+			if (lobClass != null) {
+				if (nextField.getType().equals(byte[].class) == false) {
+					//Validate.isTrue(false);
+				}
+			}
+
 		}
 
 		if (theClazz.getSuperclass().equals(Object.class)) {
@@ -88,8 +95,8 @@ public class TestUtil {
 		scanClass(theNames, theClazz.getSuperclass(), true);
 	}
 
-	private static void scan(AnnotatedElement ae, Set<String> theNames, boolean theIsSuperClass) {
-		Table table = ae.getAnnotation(Table.class);
+	private static void scan(AnnotatedElement theAnnotatedElement, Set<String> theNames, boolean theIsSuperClass) {
+		Table table = theAnnotatedElement.getAnnotation(Table.class);
 		if (table != null) {
 			assertNotADuplicateName(table.name(), theNames);
 			for (UniqueConstraint nextConstraint : table.uniqueConstraints()) {
@@ -101,28 +108,29 @@ public class TestUtil {
 				Validate.isTrue(nextConstraint.name().startsWith("IDX_"), nextConstraint.name() + " must start with IDX_");
 			}
 		}
-		
-		JoinColumn joinColumn = ae.getAnnotation(JoinColumn.class);
+
+		JoinColumn joinColumn = theAnnotatedElement.getAnnotation(JoinColumn.class);
 		if (joinColumn != null) {
 			assertNotADuplicateName(joinColumn.name(), null);
 			ForeignKey fk = joinColumn.foreignKey();
 			if (theIsSuperClass) {
-				Validate.isTrue(isBlank(fk.name()), "Foreign key on " + ae.toString() + " has a name() and should not as it is a superclass");
+				Validate.isTrue(isBlank(fk.name()), "Foreign key on " + theAnnotatedElement.toString() + " has a name() and should not as it is a superclass");
 			} else {
 				Validate.notNull(fk);
-				Validate.isTrue(isNotBlank(fk.name()), "Foreign key on " + ae.toString() + " has no name()");
+				Validate.isTrue(isNotBlank(fk.name()), "Foreign key on " + theAnnotatedElement.toString() + " has no name()");
 				Validate.isTrue(fk.name().startsWith("FK_"));
 				assertNotADuplicateName(fk.name(), theNames);
 			}
 		}
 
-		Column column = ae.getAnnotation(Column.class);
+		Column column = theAnnotatedElement.getAnnotation(Column.class);
 		if (column != null) {
 			assertNotADuplicateName(column.name(), null);
+			Validate.isTrue(column.unique() == false, "Should not use unique attribute on column (use named @UniqueConstraint instead) on " + theAnnotatedElement.toString());
 		}
 
-		GeneratedValue gen = ae.getAnnotation(GeneratedValue.class);
-		SequenceGenerator sg = ae.getAnnotation(SequenceGenerator.class);
+		GeneratedValue gen = theAnnotatedElement.getAnnotation(GeneratedValue.class);
+		SequenceGenerator sg = theAnnotatedElement.getAnnotation(SequenceGenerator.class);
 		Validate.isTrue((gen != null) == (sg != null));
 		if (gen != null) {
 			assertNotADuplicateName(gen.generator(), theNames);

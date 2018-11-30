@@ -20,6 +20,8 @@ package ca.uhn.fhir.jpa.entity;
  * #L%
  */
 
+import ca.uhn.fhir.jpa.dao.BaseHapiFhirDao;
+import ca.uhn.fhir.jpa.dao.DaoConfig;
 import ca.uhn.fhir.model.api.IQueryParameterType;
 import ca.uhn.fhir.rest.param.StringParam;
 import org.apache.commons.lang3.StringUtils;
@@ -32,11 +34,24 @@ import org.hibernate.search.annotations.*;
 import javax.persistence.*;
 import javax.persistence.Index;
 
+import static org.apache.commons.lang3.StringUtils.left;
+
 //@formatter:off
 @Embeddable
 @Entity
 @Table(name = "HFJ_SPIDX_STRING", indexes = {
-	@Index(name = "IDX_SP_STRING", columnList = "RES_TYPE,SP_NAME,SP_VALUE_NORMALIZED"),
+	/*
+	 * Note: We previously had indexes with the following names,
+	 * do not reuse these names:
+	 * IDX_SP_STRING
+	 */
+
+	// This one us used only for sorting
+	@Index(name = "IDX_SP_STRING_HASH_IDENT", columnList = "HASH_IDENTITY"),
+
+	@Index(name = "IDX_SP_STRING_HASH_NRM", columnList = "HASH_NORM_PREFIX,SP_VALUE_NORMALIZED"),
+	@Index(name = "IDX_SP_STRING_HASH_EXCT", columnList = "HASH_EXACT"),
+
 	@Index(name = "IDX_SP_STRING_UPDATED", columnList = "SP_UPDATED"),
 	@Index(name = "IDX_SP_STRING_RESID", columnList = "RES_ID")
 })
@@ -88,12 +103,11 @@ import javax.persistence.Index;
 public class ResourceIndexedSearchParamString extends BaseResourceIndexedSearchParam {
 
 	/*
-	 * Note that MYSQL chokes on unique indexes for lengths > 255 so be careful here 
+	 * Note that MYSQL chokes on unique indexes for lengths > 255 so be careful here
 	 */
 	public static final int MAX_LENGTH = 200;
-
+	public static final int HASH_PREFIX_LENGTH = 1;
 	private static final long serialVersionUID = 1L;
-
 	@Id
 	@SequenceGenerator(name = "SEQ_SPIDX_STRING", sequenceName = "SEQ_SPIDX_STRING")
 	@GeneratedValue(strategy = GenerationType.AUTO, generator = "SEQ_SPIDX_STRING")
@@ -116,16 +130,56 @@ public class ResourceIndexedSearchParamString extends BaseResourceIndexedSearchP
 
 	@Column(name = "SP_VALUE_NORMALIZED", length = MAX_LENGTH, nullable = true)
 	private String myValueNormalized;
-
+	/**
+	 * @since 3.4.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_NORM_PREFIX", nullable = true)
+	private Long myHashNormalizedPrefix;
+	/**
+	 * @since 3.6.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_IDENTITY", nullable = true)
+	private Long myHashIdentity;
+	/**
+	 * @since 3.4.0 - At some point this should be made not-null
+	 */
+	@Column(name = "HASH_EXACT", nullable = true)
+	private Long myHashExact;
+	@Transient
+	private transient DaoConfig myDaoConfig;
 	public ResourceIndexedSearchParamString() {
 		super();
 	}
 
-
-	public ResourceIndexedSearchParamString(String theName, String theValueNormalized, String theValueExact) {
+	public ResourceIndexedSearchParamString(DaoConfig theDaoConfig, String theName, String theValueNormalized, String theValueExact) {
+		setDaoConfig(theDaoConfig);
 		setParamName(theName);
 		setValueNormalized(theValueNormalized);
 		setValueExact(theValueExact);
+	}
+
+	public void setHashIdentity(Long theHashIdentity) {
+		myHashIdentity = theHashIdentity;
+	}
+
+	@Override
+	@PrePersist
+	public void calculateHashes() {
+		if (myHashNormalizedPrefix == null && myDaoConfig != null) {
+			String resourceType = getResourceType();
+			String paramName = getParamName();
+			String valueNormalized = getValueNormalized();
+			String valueExact = getValueExact();
+			setHashNormalizedPrefix(calculateHashNormalized(myDaoConfig, resourceType, paramName, valueNormalized));
+			setHashExact(calculateHashExact(resourceType, paramName, valueExact));
+			setHashIdentity(calculateHashIdentity(resourceType, paramName));
+		}
+	}
+
+	@Override
+	protected void clearHashes() {
+		myHashNormalizedPrefix = null;
+		myHashExact = null;
 	}
 
 	@Override
@@ -144,7 +198,27 @@ public class ResourceIndexedSearchParamString extends BaseResourceIndexedSearchP
 		b.append(getParamName(), obj.getParamName());
 		b.append(getResource(), obj.getResource());
 		b.append(getValueExact(), obj.getValueExact());
+		b.append(getHashExact(), obj.getHashExact());
+		b.append(getHashNormalizedPrefix(), obj.getHashNormalizedPrefix());
 		return b.isEquals();
+	}
+
+	public Long getHashExact() {
+		calculateHashes();
+		return myHashExact;
+	}
+
+	public void setHashExact(Long theHashExact) {
+		myHashExact = theHashExact;
+	}
+
+	public Long getHashNormalizedPrefix() {
+		calculateHashes();
+		return myHashNormalizedPrefix;
+	}
+
+	public void setHashNormalizedPrefix(Long theHashNormalizedPrefix) {
+		myHashNormalizedPrefix = theHashNormalizedPrefix;
 	}
 
 	@Override
@@ -183,6 +257,11 @@ public class ResourceIndexedSearchParamString extends BaseResourceIndexedSearchP
 		return b.toHashCode();
 	}
 
+	public BaseResourceIndexedSearchParam setDaoConfig(DaoConfig theDaoConfig) {
+		myDaoConfig = theDaoConfig;
+		return this;
+	}
+
 	@Override
 	public IQueryParameterType toQueryParameterType() {
 		return new StringParam(getValueExact());
@@ -197,4 +276,32 @@ public class ResourceIndexedSearchParamString extends BaseResourceIndexedSearchP
 		return b.build();
 	}
 
+	public static long calculateHashExact(String theResourceType, String theParamName, String theValueExact) {
+		return hash(theResourceType, theParamName, theValueExact);
+	}
+
+	public static long calculateHashNormalized(DaoConfig theDaoConfig, String theResourceType, String theParamName, String theValueNormalized) {
+		/*
+		 * If we're not allowing contained searches, we'll add the first
+		 * bit of the normalized value to the hash. This helps to
+		 * make the hash even more unique, which will be good for
+		 * performance.
+		 */
+		int hashPrefixLength = HASH_PREFIX_LENGTH;
+		if (theDaoConfig.isAllowContainsSearches()) {
+			hashPrefixLength = 0;
+		}
+
+		return hash(theResourceType, theParamName, left(theValueNormalized, hashPrefixLength));
+	}
+
+	@Override
+	public boolean matches(IQueryParameterType theParam) {
+		if (!(theParam instanceof StringParam)) {
+			return false;
+		}
+		StringParam string = (StringParam)theParam;
+		String normalizedString = BaseHapiFhirDao.normalizeString(string.getValue());
+		return getValueNormalized().startsWith(normalizedString);
+	}
 }

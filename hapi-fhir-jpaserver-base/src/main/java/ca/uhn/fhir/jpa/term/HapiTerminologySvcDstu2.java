@@ -21,6 +21,7 @@ package ca.uhn.fhir.jpa.term;
  */
 
 import org.hl7.fhir.instance.hapi.validation.IValidationSupport;
+import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 import org.hl7.fhir.r4.model.CodeSystem;
 import org.hl7.fhir.r4.model.ConceptMap;
@@ -78,6 +79,11 @@ public class HapiTerminologySvcDstu2 extends BaseHapiTerminologySvcImpl {
 	@Override
 	protected CodeSystem getCodeSystemFromContext(String theSystem) {
 		return null;
+	}
+
+	@Override
+	public IBaseResource expandValueSet(IBaseResource theValueSetToExpand) {
+		throw new UnsupportedOperationException();
 	}
 
 	@Override

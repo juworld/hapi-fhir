@@ -28,6 +28,7 @@ import ca.uhn.fhir.rest.server.exceptions.AuthenticationException;
 import ca.uhn.fhir.rest.server.exceptions.ForbiddenOperationException;
 import ca.uhn.fhir.rest.server.interceptor.ServerOperationInterceptorAdapter;
 import ca.uhn.fhir.util.CoverageIgnore;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.Validate;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
@@ -35,12 +36,12 @@ import org.hl7.fhir.instance.model.api.IBaseBundle;
 import org.hl7.fhir.instance.model.api.IBaseParameters;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 import static org.apache.commons.lang3.StringUtils.defaultString;
 
@@ -56,9 +57,10 @@ import static org.apache.commons.lang3.StringUtils.defaultString;
  */
 public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter implements IRuleApplier {
 
-	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(AuthorizationInterceptor.class);
+	private static final Logger ourLog = LoggerFactory.getLogger(AuthorizationInterceptor.class);
 
 	private PolicyEnum myDefaultPolicy = PolicyEnum.DENY;
+	private Set<AuthorizationFlagsEnum> myFlags = Collections.emptySet();
 
 	/**
 	 * Constructor
@@ -85,18 +87,19 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 			return;
 		}
 
-		handleDeny(decision);
+		handleDeny(theRequestDetails, decision);
 	}
 
 	@Override
 	public Verdict applyRulesAndReturnDecision(RestOperationTypeEnum theOperation, RequestDetails theRequestDetails, IBaseResource theInputResource, IIdType theInputResourceId,
 															 IBaseResource theOutputResource) {
 		List<IAuthRule> rules = buildRuleList(theRequestDetails);
+		Set<AuthorizationFlagsEnum> flags = getFlags();
 		ourLog.trace("Applying {} rules to render an auth decision for operation {}", rules.size(), theOperation);
 
 		Verdict verdict = null;
 		for (IAuthRule nextRule : rules) {
-			verdict = nextRule.applyRule(theOperation, theRequestDetails, theInputResource, theInputResourceId, theOutputResource, this);
+			verdict = nextRule.applyRule(theOperation, theRequestDetails, theInputResource, theInputResourceId, theOutputResource, this, flags);
 			if (verdict != null) {
 				ourLog.trace("Rule {} returned decision {}", nextRule, verdict.getDecision());
 				break;
@@ -105,7 +108,7 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 
 		if (verdict == null) {
 			ourLog.trace("No rules returned a decision, applying default {}", myDefaultPolicy);
-			return new Verdict(myDefaultPolicy, null);
+			return new Verdict(getDefaultPolicy(), null);
 		}
 
 		return verdict;
@@ -123,7 +126,7 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 	 * @param theRequestDetails The individual request currently being applied
 	 */
 	public List<IAuthRule> buildRuleList(RequestDetails theRequestDetails) {
-		return new ArrayList<IAuthRule>();
+		return new ArrayList<>();
 	}
 
 	private OperationExamineDirection determineOperationDirection(RestOperationTypeEnum theOperation, IBaseResource theRequestResource) {
@@ -182,6 +185,9 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 				// Nothing yet
 				return OperationExamineDirection.NONE;
 
+			case GRAPHQL_REQUEST:
+				return OperationExamineDirection.IN;
+
 			default:
 				// Should not happen
 				throw new IllegalStateException("Unable to apply security to event of type " + theOperation);
@@ -207,12 +213,58 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 	}
 
 	/**
+	 * This property configures any flags affecting how authorization is
+	 * applied. By default no flags are applied.
+	 *
+	 * @see #setFlags(Collection)
+	 */
+	public Set<AuthorizationFlagsEnum> getFlags() {
+		return Collections.unmodifiableSet(myFlags);
+	}
+
+	/**
+	 * This property configures any flags affecting how authorization is
+	 * applied. By default no flags are applied.
+	 *
+	 * @param theFlags The flags (must not be null)
+	 * @see #setFlags(AuthorizationFlagsEnum...)
+	 */
+	public AuthorizationInterceptor setFlags(Collection<AuthorizationFlagsEnum> theFlags) {
+		Validate.notNull(theFlags, "theFlags must not be null");
+		myFlags = new HashSet<>(theFlags);
+		return this;
+	}
+
+	/**
+	 * This property configures any flags affecting how authorization is
+	 * applied. By default no flags are applied.
+	 *
+	 * @param theFlags The flags (must not be null)
+	 * @see #setFlags(Collection)
+	 */
+	public AuthorizationInterceptor setFlags(AuthorizationFlagsEnum... theFlags) {
+		Validate.notNull(theFlags, "theFlags must not be null");
+		return setFlags(Lists.newArrayList(theFlags));
+	}
+
+	/**
 	 * Handle an access control verdict of {@link PolicyEnum#DENY}.
 	 * <p>
 	 * Subclasses may override to implement specific behaviour, but default is to
 	 * throw {@link ForbiddenOperationException} (HTTP 403) with error message citing the
 	 * rule name which trigered failure
 	 * </p>
+	 *
+	 * @since HAPI FHIR 3.6.0
+	 */
+	protected void handleDeny(RequestDetails theRequestDetails, Verdict decision) {
+		handleDeny(decision);
+	}
+
+	/**
+	 * This method should not be overridden. As of HAPI FHIR 3.6.0, you
+	 * should override {@link #handleDeny(RequestDetails, Verdict)} instead. This
+	 * method will be removed in the future.
 	 */
 	protected void handleDeny(Verdict decision) {
 		if (decision.getDecidingRule() != null) {
@@ -325,38 +377,6 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 		handleUserOperation(theRequest, theNewResource, RestOperationTypeEnum.UPDATE);
 	}
 
-	private static UnsupportedOperationException failForDstu1() {
-		return new UnsupportedOperationException("Use of this interceptor on DSTU1 servers is not supportd");
-	}
-
-	static List<IBaseResource> toListOfResourcesAndExcludeContainer(IBaseResource theResponseObject, FhirContext fhirContext) {
-		if (theResponseObject == null) {
-			return Collections.emptyList();
-		}
-		
-		List<IBaseResource> retVal;
-
-		boolean isContainer = false;
-		if (theResponseObject instanceof IBaseBundle) {
-			isContainer = true;
-		} else if (theResponseObject instanceof IBaseParameters) {
-			isContainer = true;
-		}
-		
-		if (!isContainer) {
-			return Collections.singletonList(theResponseObject);
-		}
-	
-		retVal = fhirContext.newTerser().getAllPopulatedChildElementsOfType(theResponseObject, IBaseResource.class);
-
-		// Exclude the container
-		if (retVal.size() > 0 && retVal.get(0) == theResponseObject) {
-			retVal = retVal.subList(1, retVal.size());
-		}
-
-		return retVal;
-	}
-
 	private enum OperationExamineDirection {
 		BOTH,
 		IN,
@@ -369,7 +389,9 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 		private final IAuthRule myDecidingRule;
 		private final PolicyEnum myDecision;
 
-		public Verdict(PolicyEnum theDecision, IAuthRule theDecidingRule) {
+		Verdict(PolicyEnum theDecision, IAuthRule theDecidingRule) {
+			Validate.notNull(theDecision);
+
 			myDecision = theDecision;
 			myDecidingRule = theDecidingRule;
 		}
@@ -390,6 +412,38 @@ public class AuthorizationInterceptor extends ServerOperationInterceptorAdapter 
 			return b.build();
 		}
 
+	}
+
+	private static UnsupportedOperationException failForDstu1() {
+		return new UnsupportedOperationException("Use of this interceptor on DSTU1 servers is not supportd");
+	}
+
+	static List<IBaseResource> toListOfResourcesAndExcludeContainer(IBaseResource theResponseObject, FhirContext fhirContext) {
+		if (theResponseObject == null) {
+			return Collections.emptyList();
+		}
+
+		List<IBaseResource> retVal;
+
+		boolean isContainer = false;
+		if (theResponseObject instanceof IBaseBundle) {
+			isContainer = true;
+		} else if (theResponseObject instanceof IBaseParameters) {
+			isContainer = true;
+		}
+
+		if (!isContainer) {
+			return Collections.singletonList(theResponseObject);
+		}
+
+		retVal = fhirContext.newTerser().getAllPopulatedChildElementsOfType(theResponseObject, IBaseResource.class);
+
+		// Exclude the container
+		if (retVal.size() > 0 && retVal.get(0) == theResponseObject) {
+			retVal = retVal.subList(1, retVal.size());
+		}
+
+		return retVal;
 	}
 
 }

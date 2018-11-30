@@ -2,11 +2,9 @@ package ca.uhn.fhir.jpa.dao.dstu3;
 
 import static org.junit.Assert.assertEquals;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
+import ca.uhn.fhir.jpa.dao.DaoConfig;
 import ca.uhn.fhir.jpa.search.JpaRuntimeSearchParam;
 import org.hl7.fhir.dstu3.hapi.validation.DefaultProfileValidationSupport;
 import org.hl7.fhir.dstu3.hapi.ctx.IValidationSupport;
@@ -79,9 +77,20 @@ public class SearchParamExtractorDstu3Test {
 			public void requestRefresh() {
 				// nothing
 			}
+
+			@Override
+			public RuntimeSearchParam getSearchParamByName(RuntimeResourceDefinition theResourceDef, String theParamName) {
+				return null;
+			}
+
+			@Override
+			public Collection<RuntimeSearchParam> getSearchParamsByResourceType(RuntimeResourceDefinition theResourceDef) {
+				return null;
+			}
 		};
 
-		SearchParamExtractorDstu3 extractor = new SearchParamExtractorDstu3(ourCtx, ourValidationSupport, searchParamRegistry);
+		SearchParamExtractorDstu3 extractor = new SearchParamExtractorDstu3(new DaoConfig(), ourCtx, ourValidationSupport, searchParamRegistry);
+		extractor.start();
 		Set<BaseResourceIndexedSearchParam> tokens = extractor.extractSearchParamTokens(new ResourceTable(), obs);
 		assertEquals(1, tokens.size());
 		ResourceIndexedSearchParamToken token = (ResourceIndexedSearchParamToken) tokens.iterator().next();

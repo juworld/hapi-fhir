@@ -63,7 +63,7 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		codeSystem.setContent(CodeSystemContentMode.NOTPRESENT);
 		IIdType id = myCodeSystemDao.create(codeSystem, mySrd).getId().toUnqualified();
 
-		ResourceTable table = myResourceTableDao.findOne(id.getIdPartAsLong());
+		ResourceTable table = myResourceTableDao.findById(id.getIdPartAsLong()).orElseThrow(IllegalStateException::new);
 
 		TermCodeSystemVersion cs = new TermCodeSystemVersion();
 		cs.setResource(table);
@@ -106,7 +106,7 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		codeSystem.setContent(CodeSystemContentMode.NOTPRESENT);
 		IIdType id = myCodeSystemDao.create(codeSystem, mySrd).getId().toUnqualified();
 
-		ResourceTable table = myResourceTableDao.findOne(id.getIdPartAsLong());
+		ResourceTable table = myResourceTableDao.findById(id.getIdPartAsLong()).orElseThrow(IllegalStateException::new);
 
 		TermCodeSystemVersion cs = new TermCodeSystemVersion();
 		cs.setResource(table);
@@ -143,7 +143,7 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		codeSystem.setContent(CodeSystemContentMode.NOTPRESENT);
 		IIdType id = myCodeSystemDao.create(codeSystem, mySrd).getId().toUnqualified();
 
-		ResourceTable table = myResourceTableDao.findOne(id.getIdPartAsLong());
+		ResourceTable table = myResourceTableDao.findById(id.getIdPartAsLong()).orElseThrow(IllegalStateException::new);
 
 		TermCodeSystemVersion cs = new TermCodeSystemVersion();
 		cs.setResource(table);
@@ -487,10 +487,10 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		
 		createExternalCsAndLocalVs();
 
-		mySystemDao.markAllResourcesForReindexing();
+		myResourceReindexingSvc.markAllResourcesForReindexing();
+		myResourceReindexingSvc.forceReindexingPass();
+		myResourceReindexingSvc.forceReindexingPass();
 
-		mySystemDao.performReindexingPass(100);
-		mySystemDao.performReindexingPass(100);
 		myHapiTerminologySvc.saveDeferred();
 		myHapiTerminologySvc.saveDeferred();
 		myHapiTerminologySvc.saveDeferred();
@@ -517,13 +517,8 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		include.setSystem(URL_MY_CODE_SYSTEM);
 		include.addConcept().setCode("ZZZZ");
 
-		try {
-			myValueSetDao.expand(vs, null);
-			fail();
-		} catch (InvalidRequestException e) {
-			assertEquals("Unable to find code 'ZZZZ' in code system http://example.com/my_code_system", e.getMessage());
-		}
-
+		ValueSet expansion = myValueSetDao.expand(vs, null);
+		assertEquals(0, expansion.getExpansion().getContains().size());
 	}
 
 	@Test
@@ -543,36 +538,6 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		}
 	}
 	
-	@Test
-	public void testExpandWithSystemAndCodesAndFilterKeywordInLocalValueSet() {
-		createLocalCsAndVs();
-
-		ValueSet vs = new ValueSet();
-		ConceptSetComponent include = vs.getCompose().addInclude();
-		include.setSystem(URL_MY_CODE_SYSTEM);
-		include.addConcept().setCode("A");
-
-		include.addFilter().setProperty("display").setOp(FilterOperator.EQUAL).setValue("AAA");
-
-		ValueSet result = myValueSetDao.expand(vs, null);
-		
-		// Technically it's not valid to expand a ValueSet with both includes and filters so the
-		// result fails validation because of the input.. we're being permissive by allowing both
-		// though, so we won't validate the input
-		result.setCompose(new ValueSetComposeComponent());
-		
-		logAndValidateValueSet(result);
-
-		ArrayList<String> codes = toCodesContains(result.getExpansion().getContains());
-		assertThat(codes, containsInAnyOrder("A", "AAA"));
-
-		int idx = codes.indexOf("AAA");
-		assertEquals("AAA", result.getExpansion().getContains().get(idx).getCode());
-		assertEquals("Code AAA", result.getExpansion().getContains().get(idx).getDisplay());
-		assertEquals(URL_MY_CODE_SYSTEM, result.getExpansion().getContains().get(idx).getSystem());
-		//
-	}
-
 	@Test
 	public void testExpandWithSystemAndCodesInExternalValueSet() {
 		createExternalCsAndLocalVs();
@@ -707,7 +672,7 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		codeSystem.setContent(CodeSystemContentMode.NOTPRESENT);
 		IIdType id = myCodeSystemDao.create(codeSystem, mySrd).getId().toUnqualified();
 
-		ResourceTable table = myResourceTableDao.findOne(id.getIdPartAsLong());
+		ResourceTable table = myResourceTableDao.findById(id.getIdPartAsLong()).orElseThrow(IllegalStateException::new);
 
 		TermCodeSystemVersion cs = new TermCodeSystemVersion();
 		cs.setResource(table);
@@ -764,17 +729,17 @@ public class FhirResourceDaoDstu3TerminologyTest extends BaseJpaDstu3Test {
 		include.setSystem(URL_MY_CODE_SYSTEM);
 		include.addConcept().setCode("ZZZZ");
 
-		mySystemDao.markAllResourcesForReindexing();
-		mySystemDao.performReindexingPass(null);
+		myResourceReindexingSvc.markAllResourcesForReindexing();
+		myResourceReindexingSvc.forceReindexingPass();
+		myResourceReindexingSvc.forceReindexingPass();
 		myTermSvc.saveDeferred();
-		mySystemDao.performReindexingPass(null);
 		myTermSvc.saveDeferred();
 		
 		// Again
-		mySystemDao.markAllResourcesForReindexing();
-		mySystemDao.performReindexingPass(null);
+		myResourceReindexingSvc.markAllResourcesForReindexing();
+		myResourceReindexingSvc.forceReindexingPass();
+		myResourceReindexingSvc.forceReindexingPass();
 		myTermSvc.saveDeferred();
-		mySystemDao.performReindexingPass(null);
 		myTermSvc.saveDeferred();
 
 	}

@@ -42,10 +42,10 @@ public class TermConceptMapGroupElement implements Serializable {
 	private Long myId;
 
 	@ManyToOne()
-	@JoinColumn(name = "CONCEPT_MAP_GROUP_PID", nullable = false, referencedColumnName = "PID", foreignKey=@ForeignKey(name="FK_TCMGELEMENT_GROUP"))
+	@JoinColumn(name = "CONCEPT_MAP_GROUP_PID", nullable = false, referencedColumnName = "PID", foreignKey = @ForeignKey(name = "FK_TCMGELEMENT_GROUP"))
 	private TermConceptMapGroup myConceptMapGroup;
 
-	@Column(name = "SOURCE_CODE", nullable = false, length = 100)
+	@Column(name = "SOURCE_CODE", nullable = false, length = TermConcept.CODE_LENGTH)
 	private String myCode;
 
 	@Column(name = "SOURCE_DISPLAY", length = TermConcept.MAX_DESC_LENGTH)
@@ -151,10 +151,10 @@ public class TermConceptMapGroupElement implements Serializable {
 	public String toString() {
 		return new ToStringBuilder(this, ToStringStyle.MULTI_LINE_STYLE)
 			.append("myId", myId)
-			.append("myConceptMapGroup - id", myConceptMapGroup.getId())
+			.append(myConceptMapGroup != null ? ("myConceptMapGroup - id=" + myConceptMapGroup.getId()) : ("myConceptMapGroup=(null)"))
 			.append("myCode", myCode)
 			.append("myDisplay", myDisplay)
-			.append("myConceptMapGroupElementTargets - size", myConceptMapGroupElementTargets.size())
+			.append(myConceptMapGroupElementTargets != null ? ("myConceptMapGroupElementTargets - size=" + myConceptMapGroupElementTargets.size()) : ("myConceptMapGroupElementTargets=(null)"))
 			.append("myConceptMapUrl", this.getConceptMapUrl())
 			.append("mySystem", this.getSystem())
 			.append("mySystemVersion", this.getSystemVersion())

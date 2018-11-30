@@ -44,7 +44,7 @@ import static org.apache.commons.lang3.StringUtils.defaultString;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @SuppressWarnings({"unchecked", "deprecation"})
@@ -653,7 +653,7 @@ public class FhirResourceDaoDstu3Test extends BaseJpaDstu3Test {
 		p.addIdentifier().setSystem("urn:system").setValue("testCreateTextIdFails");
 		p.addName().setFamily("Hello");
 
-		p.getMeta().addTag().setSystem(Constants.TAG_SUBSETTED_SYSTEM).setCode(Constants.TAG_SUBSETTED_CODE);
+		p.getMeta().addTag().setSystem(Constants.TAG_SUBSETTED_SYSTEM_DSTU3).setCode(Constants.TAG_SUBSETTED_CODE);
 
 		try {
 			myPatientDao.create(p, mySrd);
@@ -2865,15 +2865,21 @@ public class FhirResourceDaoDstu3Test extends BaseJpaDstu3Test {
 		p.addName().setFamily(methodName);
 		IIdType id1 = myPatientDao.create(p, mySrd).getId().toUnqualifiedVersionless();
 
+		ca.uhn.fhir.jpa.util.TestUtil.sleepAtLeast(1);
+
 		p = new Patient();
 		p.addIdentifier().setSystem("urn:system2").setValue(methodName);
 		p.addName().setFamily(methodName);
 		IIdType id2 = myPatientDao.create(p, mySrd).getId().toUnqualifiedVersionless();
 
+		ca.uhn.fhir.jpa.util.TestUtil.sleepAtLeast(1);
+
 		p = new Patient();
 		p.addIdentifier().setSystem("urn:system3").setValue(methodName);
 		p.addName().setFamily(methodName);
 		IIdType id3 = myPatientDao.create(p, mySrd).getId().toUnqualifiedVersionless();
+
+		ca.uhn.fhir.jpa.util.TestUtil.sleepAtLeast(1);
 
 		p = new Patient();
 		p.addIdentifier().setSystem("urn:system4").setValue(methodName);
@@ -2937,6 +2943,9 @@ public class FhirResourceDaoDstu3Test extends BaseJpaDstu3Test {
 		actual = toUnqualifiedVersionlessIdValues(myEncounterDao.search(pm));
 		assertThat(actual, contains(toValues(id3, id2, id1)));
 	}
+
+	@Test
+	@Ignore
 
 	public void testSortByQuantity() {
 		Observation res;
@@ -3203,6 +3212,8 @@ public class FhirResourceDaoDstu3Test extends BaseJpaDstu3Test {
 
 	}
 
+	@Test
+	@Ignore
 	public void testSortByUri() {
 		ConceptMap res = new ConceptMap();
 		res.addGroup().setSource("http://foo2");

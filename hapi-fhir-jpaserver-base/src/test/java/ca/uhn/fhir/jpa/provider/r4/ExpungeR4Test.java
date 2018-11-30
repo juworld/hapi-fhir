@@ -2,12 +2,16 @@ package ca.uhn.fhir.jpa.provider.r4;
 
 import ca.uhn.fhir.jpa.dao.DaoConfig;
 import ca.uhn.fhir.jpa.dao.IFhirResourceDao;
+import ca.uhn.fhir.jpa.dao.SearchParameterMap;
 import ca.uhn.fhir.jpa.util.ExpungeOptions;
+import ca.uhn.fhir.rest.api.server.IBundleProvider;
 import ca.uhn.fhir.rest.server.exceptions.PreconditionFailedException;
 import ca.uhn.fhir.rest.server.exceptions.ResourceGoneException;
 import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import ca.uhn.fhir.util.TestUtil;
+import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
+import org.hl7.fhir.r4.model.IdType;
 import org.hl7.fhir.r4.model.Observation;
 import org.hl7.fhir.r4.model.Patient;
 import org.junit.After;
@@ -15,6 +19,10 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.List;
+
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.*;
 
 public class ExpungeR4Test extends BaseResourceProviderR4Test {
@@ -58,11 +66,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 		getDao(theId).read(theId);
 	}
 
-	@Override
-	@Before
-	public void before() throws Exception {
-		super.before();
 
+	public void createStandardPatients() {
 		Patient p = new Patient();
 		p.setId("PT-ONEVERSION");
 		p.getMeta().addTag().setSystem("http://foo").setCode("bar");
@@ -105,7 +110,6 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 		o.setStatus(Observation.ObservationStatus.FINAL);
 		myDeletedObservationId = myObservationDao.create(o).getId();
 		myDeletedObservationId = myObservationDao.delete(myDeletedObservationId).getId();
-
 	}
 
 	private IFhirResourceDao<?> getDao(IIdType theId) {
@@ -126,6 +130,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 
 	@Test
 	public void testExpungeInstanceOldVersionsAndDeleted() {
+		createStandardPatients();
+
 		Patient p = new Patient();
 		p.setId("PT-TWOVERSION");
 		p.getMeta().addTag().setSystem("http://foo").setCode("bar");
@@ -152,7 +158,34 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 	}
 
 	@Test
+	public void testExpungeAllVersionsDeletesRow() {
+		// Create then delete
+		Patient p = new Patient();
+		p.setId("TEST");
+		p.getMeta().addTag().setSystem("http://foo").setCode("bar");
+		p.setActive(true);
+		p.addName().setFamily("FOO");
+		myPatientDao.update(p).getId();
+		myPatientDao.delete(new IdType("Patient/TEST"));
+
+		runInTransaction(() -> assertThat(myResourceTableDao.findAll(), not(empty())));
+		runInTransaction(() -> assertThat(myResourceHistoryTableDao.findAll(), not(empty())));
+		runInTransaction(() -> assertThat(myForcedIdDao.findAll(), not(empty())));
+
+		myPatientDao.expunge(new ExpungeOptions()
+			.setExpungeDeletedResources(true)
+			.setExpungeOldVersions(true));
+
+		runInTransaction(() -> assertThat(myResourceTableDao.findAll(), empty()));
+		runInTransaction(() -> assertThat(myResourceHistoryTableDao.findAll(), empty()));
+		runInTransaction(() -> assertThat(myForcedIdDao.findAll(), empty()));
+
+	}
+
+
+	@Test
 	public void testExpungeInstanceVersionCurrentVersion() {
+		createStandardPatients();
 
 		try {
 			myPatientDao.expunge(myTwoVersionPatientId.withVersion("2"), new ExpungeOptions()
@@ -166,6 +199,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 
 	@Test
 	public void testExpungeInstanceVersionOldVersionsAndDeleted() {
+		createStandardPatients();
+
 		Patient p = new Patient();
 		p.setId("PT-TWOVERSION");
 		p.getMeta().addTag().setSystem("http://foo").setCode("bar");
@@ -193,6 +228,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 
 	@Test
 	public void testExpungeSystemOldVersionsAndDeleted() {
+		createStandardPatients();
+
 		mySystemDao.expunge(new ExpungeOptions()
 			.setExpungeDeletedResources(true)
 			.setExpungeOldVersions(true));
@@ -212,6 +249,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 
 	@Test
 	public void testExpungeTypeDeletedResources() {
+		createStandardPatients();
+
 		myPatientDao.expunge(new ExpungeOptions()
 			.setExpungeDeletedResources(true)
 			.setExpungeOldVersions(false));
@@ -231,6 +270,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 
 	@Test
 	public void testExpungeTypeOldVersions() {
+		createStandardPatients();
+
 		myPatientDao.expunge(new ExpungeOptions()
 			.setExpungeDeletedResources(false)
 			.setExpungeOldVersions(true));
@@ -251,6 +292,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 
 	@Test
 	public void testExpungeSystemEverything() {
+		createStandardPatients();
+
 		mySystemDao.expunge(new ExpungeOptions()
 			.setExpungeEverything(true));
 
@@ -270,6 +313,8 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 
 	@Test
 	public void testExpungeTypeOldVersionsAndDeleted() {
+		createStandardPatients();
+
 		myPatientDao.expunge(new ExpungeOptions()
 			.setExpungeDeletedResources(true)
 			.setExpungeOldVersions(true));
@@ -285,6 +330,61 @@ public class ExpungeR4Test extends BaseResourceProviderR4Test {
 		assertStillThere(myTwoVersionObservationId.withVersion("1"));
 		assertStillThere(myTwoVersionObservationId.withVersion("2"));
 		assertGone(myDeletedObservationId);
+	}
+
+	@Test
+	public void testExpungeEverythingWhereResourceInSearchResults() {
+		createStandardPatients();
+
+		IBundleProvider search = myPatientDao.search(new SearchParameterMap());
+		assertEquals(2, search.size().intValue());
+		search.getResources(0, 2);
+
+		runInTransaction(() -> {
+			assertEquals(2, mySearchResultDao.count());
+		});
+
+		mySystemDao.expunge(new ExpungeOptions()
+			.setExpungeEverything(true));
+
+		// Everything deleted
+		assertExpunged(myOneVersionPatientId);
+		assertExpunged(myTwoVersionPatientId.withVersion("1"));
+		assertExpunged(myTwoVersionPatientId.withVersion("2"));
+		assertExpunged(myDeletedPatientId.withVersion("1"));
+		assertExpunged(myDeletedPatientId);
+
+		// Everything deleted
+		assertExpunged(myOneVersionObservationId);
+		assertExpunged(myTwoVersionObservationId.withVersion("1"));
+		assertExpunged(myTwoVersionObservationId.withVersion("2"));
+		assertExpunged(myDeletedObservationId);
+	}
+
+	@Test
+	public void testExpungeDeletedWhereResourceInSearchResults() {
+		createStandardPatients();
+
+		IBundleProvider search = myPatientDao.search(new SearchParameterMap());
+		assertEquals(2, search.size().intValue());
+		List<IBaseResource> resources = search.getResources(0, 2);
+		myPatientDao.delete(resources.get(0).getIdElement());
+
+		runInTransaction(() -> {
+			assertEquals(2, mySearchResultDao.count());
+		});
+
+
+		mySystemDao.expunge(new ExpungeOptions()
+			.setExpungeDeletedResources(true));
+
+		// Everything deleted
+		assertExpunged(myOneVersionPatientId);
+		assertStillThere(myTwoVersionPatientId.withVersion("1"));
+		assertStillThere(myTwoVersionPatientId.withVersion("2"));
+		assertExpunged(myDeletedPatientId.withVersion("1"));
+		assertExpunged(myDeletedPatientId);
+
 	}
 
 	@AfterClass

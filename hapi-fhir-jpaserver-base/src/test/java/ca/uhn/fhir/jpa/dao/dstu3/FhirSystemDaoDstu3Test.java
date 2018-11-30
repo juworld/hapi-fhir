@@ -2,12 +2,14 @@ package ca.uhn.fhir.jpa.dao.dstu3;
 
 import ca.uhn.fhir.jpa.dao.BaseHapiFhirDao;
 import ca.uhn.fhir.jpa.dao.DaoConfig;
+import ca.uhn.fhir.jpa.dao.GZipUtil;
 import ca.uhn.fhir.jpa.dao.SearchParameterMap;
 import ca.uhn.fhir.jpa.entity.ResourceTag;
 import ca.uhn.fhir.jpa.entity.TagTypeEnum;
 import ca.uhn.fhir.jpa.provider.SystemProviderDstu2Test;
 import ca.uhn.fhir.model.api.ResourceMetadataKeyEnum;
 import ca.uhn.fhir.model.primitive.IdDt;
+import ca.uhn.fhir.parser.LenientErrorHandler;
 import ca.uhn.fhir.rest.api.Constants;
 import ca.uhn.fhir.rest.api.RestOperationTypeEnum;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
@@ -16,6 +18,7 @@ import ca.uhn.fhir.rest.param.TokenParam;
 import ca.uhn.fhir.rest.server.exceptions.*;
 import ca.uhn.fhir.rest.server.interceptor.IServerInterceptor.ActionRequestDetails;
 import ca.uhn.fhir.util.TestUtil;
+import com.google.common.base.Charsets;
 import org.apache.commons.io.IOUtils;
 import org.hl7.fhir.dstu3.model.*;
 import org.hl7.fhir.dstu3.model.Bundle.*;
@@ -150,36 +153,6 @@ public class FhirSystemDaoDstu3Test extends BaseJpaDstu3SystemTest {
 				.setIfNoneExist("Observation?subject=urn:uuid:0001&code=http%3A%2F%2Floinc.org|29463-7&date=2017-09-03T11:13:00-04:00");
 		}
 		return input;
-	}
-
-	@Test
-	public void testTransactionUpdateTwoResourcesWithSameId() {
-		Bundle request = new Bundle();
-
-		Patient p = new Patient();
-		p.addIdentifier().setSystem("urn:system").setValue("DDD");
-		p.setId("Patient/ABC");
-		request.addEntry()
-			.setResource(p)
-			.getRequest()
-			.setMethod(HTTPVerb.PUT)
-			.setUrl("Patient/ABC");
-
-		p = new Patient();
-		p.addIdentifier().setSystem("urn:system").setValue("DDD");
-		p.setId("Patient/ABC");
-		request.addEntry()
-			.setResource(p)
-			.getRequest()
-			.setMethod(HTTPVerb.PUT)
-			.setUrl("Patient/ABC");
-
-		try {
-			mySystemDao.transaction(mySrd, request);
-			fail();
-		} catch (InvalidRequestException e) {
-			assertThat(e.getMessage(), containsString("Transaction bundle contains multiple resources with ID: Patient/ABC"));
-		}
 	}
 
 	@SuppressWarnings("unchecked")
@@ -351,6 +324,20 @@ public class FhirSystemDaoDstu3Test extends BaseJpaDstu3SystemTest {
 
 	}
 
+
+	@Test
+	@Ignore
+	public void testProcessCollectionAsBatch() throws IOException {
+		byte[] inputBytes = IOUtils.toByteArray(getClass().getResourceAsStream("/dstu3/Reilly_Libby_73.json.gz"));
+		String input = GZipUtil.decompress(inputBytes);
+		Bundle bundle = myFhirCtx.newJsonParser().setParserErrorHandler(new LenientErrorHandler()).parseResource(Bundle.class, input);
+		ourLog.info("Bundle has {} resources", bundle);
+
+		Bundle output = mySystemDao.transaction(mySrd, bundle);
+		ourLog.info(myFhirCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(output));
+	}
+
+
 	/**
 	 * See #410
 	 */
@@ -468,6 +455,17 @@ public class FhirSystemDaoDstu3Test extends BaseJpaDstu3SystemTest {
 		} catch (ResourceNotFoundException e) {
 			// good
 		}
+	}
+
+	/**
+	 * See #1044
+	 */
+	@Test
+	public void testStructureDefinitionInBundle() throws IOException {
+		String input = IOUtils.toString(FhirSystemDaoDstu3Test.class.getResourceAsStream("/bug1044-bundle.xml"), Charsets.UTF_8);
+		Bundle inputBundle = myFhirCtx.newXmlParser().parseResource(Bundle.class, input);
+
+		mySystemDao.transaction(mySrd, inputBundle);
 	}
 
 	@Test
@@ -1428,26 +1426,6 @@ public class FhirSystemDaoDstu3Test extends BaseJpaDstu3SystemTest {
 	}
 
 	@Test
-	public void testTransactionDoesNotAllowDanglingTemporaryIds() throws Exception {
-		String input = IOUtils.toString(getClass().getResourceAsStream("/cdr-bundle.json"), StandardCharsets.UTF_8);
-		Bundle bundle = myFhirCtx.newJsonParser().parseResource(Bundle.class, input);
-
-		BundleEntryComponent entry = bundle.addEntry();
-		Patient p = new Patient();
-		p.getManagingOrganization().setReference("urn:uuid:30ce60cf-f7cb-4196-961f-cadafa8b7ff5");
-		entry.setResource(p);
-		entry.getRequest().setMethod(HTTPVerb.POST);
-		entry.getRequest().setUrl("Patient");
-
-		try {
-			mySystemDao.transaction(mySrd, bundle);
-			fail();
-		} catch (InvalidRequestException e) {
-			assertEquals("Unable to satisfy placeholder ID: urn:uuid:30ce60cf-f7cb-4196-961f-cadafa8b7ff5", e.getMessage());
-		}
-	}
-
-	@Test
 	public void testTransactionDoesNotLeavePlaceholderIds() throws Exception {
 		String input;
 		try {
@@ -2257,6 +2235,36 @@ public class FhirSystemDaoDstu3Test extends BaseJpaDstu3SystemTest {
 	}
 
 	@Test
+	public void testTransactionUpdateTwoResourcesWithSameId() {
+		Bundle request = new Bundle();
+
+		Patient p = new Patient();
+		p.addIdentifier().setSystem("urn:system").setValue("DDD");
+		p.setId("Patient/ABC");
+		request.addEntry()
+			.setResource(p)
+			.getRequest()
+			.setMethod(HTTPVerb.PUT)
+			.setUrl("Patient/ABC");
+
+		p = new Patient();
+		p.addIdentifier().setSystem("urn:system").setValue("DDD");
+		p.setId("Patient/ABC");
+		request.addEntry()
+			.setResource(p)
+			.getRequest()
+			.setMethod(HTTPVerb.PUT)
+			.setUrl("Patient/ABC");
+
+		try {
+			mySystemDao.transaction(mySrd, request);
+			fail();
+		} catch (InvalidRequestException e) {
+			assertThat(e.getMessage(), containsString("Transaction bundle contains multiple resources with ID: Patient/ABC"));
+		}
+	}
+
+	@Test
 	public void testTransactionWIthInvalidPlaceholder() throws Exception {
 		Bundle res = new Bundle();
 		res.setType(BundleType.TRANSACTION);
@@ -3048,7 +3056,7 @@ public class FhirSystemDaoDstu3Test extends BaseJpaDstu3SystemTest {
 
 	@Test
 	public void testTransactionWithReplacement() {
-		byte[] bytes = new byte[] {0, 1, 2, 3, 4};
+		byte[] bytes = new byte[]{0, 1, 2, 3, 4};
 
 		Binary binary = new Binary();
 		binary.setId(IdType.newRandomUuid());

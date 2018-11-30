@@ -46,6 +46,7 @@ import org.apache.commons.io.IOUtils;
 import org.hl7.fhir.instance.model.api.IAnyResource;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 
+import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.io.Reader;
 import java.lang.reflect.InvocationTargetException;
@@ -223,6 +224,7 @@ public abstract class BaseMethodBinding<T> {
 	 */
 	public abstract String getResourceName();
 
+	@Nonnull
 	public abstract RestOperationTypeEnum getRestOperationType();
 
 	/**
@@ -475,10 +477,6 @@ public abstract class BaseMethodBinding<T> {
 		if (read != null) {
 			return new ReadMethodBinding(returnType, theMethod, theContext, theProvider);
 		} else if (search != null) {
-			if (search.dynamic()) {
-				IDynamicSearchResourceProvider provider = (IDynamicSearchResourceProvider) theProvider;
-				return new DynamicSearchMethodBinding(returnType, theMethod, theContext, provider);
-			}
 			return new SearchMethodBinding(returnType, theMethod, theContext, theProvider);
 		} else if (conformance != null) {
 			return new ConformanceMethodBinding(theMethod, theContext, theProvider);

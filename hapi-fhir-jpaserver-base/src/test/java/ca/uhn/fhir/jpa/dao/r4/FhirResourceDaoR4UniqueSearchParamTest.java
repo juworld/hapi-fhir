@@ -1,6 +1,7 @@
 package ca.uhn.fhir.jpa.dao.r4;
 
 import ca.uhn.fhir.jpa.dao.DaoConfig;
+import ca.uhn.fhir.jpa.dao.ISearchParamRegistry;
 import ca.uhn.fhir.jpa.dao.SearchBuilder;
 import ca.uhn.fhir.jpa.dao.SearchParameterMap;
 import ca.uhn.fhir.jpa.entity.ResourceIndexedCompositeStringUnique;
@@ -12,6 +13,7 @@ import ca.uhn.fhir.rest.param.TokenParam;
 import ca.uhn.fhir.rest.server.exceptions.PreconditionFailedException;
 import ca.uhn.fhir.rest.server.exceptions.ResourceVersionConflictException;
 import ca.uhn.fhir.util.TestUtil;
+import com.google.common.collect.Sets;
 import org.hl7.fhir.instance.model.api.IIdType;
 import org.hl7.fhir.r4.model.*;
 import org.hl7.fhir.r4.model.Enumerations.PublicationStatus;
@@ -19,6 +21,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallbackWithoutResult;
@@ -29,8 +32,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
 
 @SuppressWarnings({"unchecked", "deprecation"})
@@ -47,12 +49,16 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 	public void after() {
 		myDaoConfig.setDefaultSearchParamsCanBeOverridden(new DaoConfig().isDefaultSearchParamsCanBeOverridden());
 		myDaoConfig.setUniqueIndexesCheckedBeforeSave(new DaoConfig().isUniqueIndexesCheckedBeforeSave());
+		myDaoConfig.setSchedulingDisabled(new DaoConfig().isSchedulingDisabled());
+		myDaoConfig.setUniqueIndexesEnabled(new DaoConfig().isUniqueIndexesEnabled());
 	}
 
 	@Before
 	public void before() {
 		myDaoConfig.setDefaultSearchParamsCanBeOverridden(true);
-		myDaoConfig.setSchedulingDisabled(new DaoConfig().isSchedulingDisabled());
+		myDaoConfig.setSchedulingDisabled(true);
+		myDaoConfig.setUniqueIndexesEnabled(true);
+		SearchBuilder.resetLastHandlerMechanismForUnitTest();
 	}
 
 	private void createUniqueBirthdateAndGenderSps() {
@@ -91,6 +97,8 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 		mySearchParameterDao.update(sp);
 
 		mySearchParamRegsitry.forceRefresh();
+
+		SearchBuilder.resetLastHandlerMechanismForUnitTest();
 	}
 
 
@@ -416,6 +424,10 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 
 	}
 
+	@Autowired
+	private ISearchParamRegistry mySearchParamRegistry;
+
+
 	@Test
 	public void testDuplicateUniqueValuesAreReIndexed() {
 		myDaoConfig.setSchedulingDisabled(true);
@@ -446,26 +458,30 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 
 		createUniqueObservationSubjectDateCode();
 
-		mySystemDao.markAllResourcesForReindexing();
-		mySystemDao.performReindexingPass(1000);
-		mySystemDao.performReindexingPass(1000);
+		List<JpaRuntimeSearchParam> uniqueSearchParams = mySearchParamRegistry.getActiveUniqueSearchParams("Observation");
+		assertEquals(1, uniqueSearchParams.size());
+		assertEquals(3, uniqueSearchParams.get(0).getComponents().size());
+
+		myResourceReindexingSvc.markAllResourcesForReindexing();
+		myResourceReindexingSvc.forceReindexingPass();
+		myResourceReindexingSvc.forceReindexingPass();
 
 		List<ResourceIndexedCompositeStringUnique> uniques = myResourceIndexedCompositeStringUniqueDao.findAll();
 		assertEquals(uniques.toString(), 1, uniques.size());
-		assertEquals("Observation/" + id2.getIdPart(), uniques.get(0).getResource().getIdDt().toUnqualifiedVersionless().getValue());
+		assertThat(uniques.get(0).getResource().getIdDt().toUnqualifiedVersionless().getValue(), either(equalTo("Observation/" + id2.getIdPart())).or(equalTo("Observation/" + id3.getIdPart())));
 		assertEquals("Observation?code=foo%7Cbar&date=2011-01-01&subject=Patient%2F" + id1.getIdPart(), uniques.get(0).getIndexString());
 
 		myResourceIndexedCompositeStringUniqueDao.deleteAll();
 
 		assertEquals(1, mySearchParamRegsitry.getActiveUniqueSearchParams("Observation").size());
 
-		assertEquals(7, mySystemDao.markAllResourcesForReindexing());
-		mySystemDao.performReindexingPass(1000);
-		mySystemDao.performReindexingPass(1000);
+		myResourceReindexingSvc.markAllResourcesForReindexing();
+		myResourceReindexingSvc.forceReindexingPass();
+		myResourceReindexingSvc.forceReindexingPass();
 
 		uniques = myResourceIndexedCompositeStringUniqueDao.findAll();
 		assertEquals(uniques.toString(), 1, uniques.size());
-		assertEquals("Observation/" + id2.getIdPart(), uniques.get(0).getResource().getIdDt().toUnqualifiedVersionless().getValue());
+		assertThat(uniques.get(0).getResource().getIdDt().toUnqualifiedVersionless().getValue(), either(equalTo("Observation/" + id2.getIdPart())).or(equalTo("Observation/" + id3.getIdPart())));
 		assertEquals("Observation?code=foo%7Cbar&date=2011-01-01&subject=Patient%2F" + id1.getIdPart(), uniques.get(0).getIndexString());
 
 	}
@@ -554,10 +570,16 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 
 		createUniqueIndexCoverageBeneficiary();
 
-		mySystemDao.markAllResourcesForReindexing();
-		mySystemDao.performReindexingPass(1000);
+		myResourceReindexingSvc.markAllResourcesForReindexing("Coverage");
+		// The first pass as a low of EPOCH
+		assertEquals(1, myResourceReindexingSvc.forceReindexingPass());
+		// The second pass has a low of Coverage.lastUpdated
+		assertEquals(1, myResourceReindexingSvc.forceReindexingPass());
+		// The third pass has a low of (Coverage.lastUpdated + 1ms)
+		assertEquals(0, myResourceReindexingSvc.forceReindexingPass());
 
 		List<ResourceIndexedCompositeStringUnique> uniques = myResourceIndexedCompositeStringUniqueDao.findAll();
+		ourLog.info("** Uniques: {}", uniques);
 		assertEquals(uniques.toString(), 1, uniques.size());
 		assertEquals("Coverage/" + id3.getIdPart(), uniques.get(0).getResource().getIdDt().toUnqualifiedVersionless().getValue());
 		assertEquals("Coverage?beneficiary=Patient%2F" + id2.getIdPart() + "&identifier=urn%3Afoo%3Abar%7C123", uniques.get(0).getIndexString());
@@ -718,7 +740,7 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 
 		Observation obs = new Observation();
 		obs.setSubject(new Reference(ptid));
-		obs.setContext(new Reference(encid));
+		obs.setEncounter(new Reference(encid));
 		myObservationDao.create(obs);
 
 		new TransactionTemplate(myTxManager).execute(new TransactionCallbackWithoutResult() {
@@ -752,7 +774,7 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 		params.add("birthdate", new DateParam("2011-01-01"));
 		IBundleProvider results = myPatientDao.search(params);
 		assertThat(toUnqualifiedVersionlessIdValues(results), containsInAnyOrder(id1.getValue()));
-		assertEquals(SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
+		assertEquals(SearchBuilder.getLastHandlerParamsForUnitTest(), SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
 	}
 
 
@@ -777,7 +799,7 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 		IBundleProvider results = myPatientDao.search(params);
 		String searchId = results.getUuid();
 		assertThat(toUnqualifiedVersionlessIdValues(results), containsInAnyOrder(id1));
-		assertEquals(SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
+		assertEquals(SearchBuilder.getLastHandlerParamsForUnitTest(), SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
 
 		// Other order
 		SearchBuilder.resetLastHandlerMechanismForUnitTest();
@@ -796,14 +818,14 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 		params.add("birthdate", new DateParam("2011-01-03"));
 		results = myPatientDao.search(params);
 		assertThat(toUnqualifiedVersionlessIdValues(results), empty());
-		assertEquals(SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
+		assertEquals(SearchBuilder.getLastHandlerParamsForUnitTest(), SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
 
 		SearchBuilder.resetLastHandlerMechanismForUnitTest();
 		params = new SearchParameterMap();
 		params.add("birthdate", new DateParam("2011-01-03"));
 		results = myPatientDao.search(params);
 		assertThat(toUnqualifiedVersionlessIdValues(results), empty());
-		assertEquals(SearchBuilder.HandlerTypeEnum.STANDARD_QUERY, SearchBuilder.getLastHandlerMechanismForUnitTest());
+		assertEquals(SearchBuilder.getLastHandlerParamsForUnitTest(), SearchBuilder.HandlerTypeEnum.STANDARD_QUERY, SearchBuilder.getLastHandlerMechanismForUnitTest());
 
 	}
 
@@ -869,7 +891,7 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 
 		SearchBuilder.resetLastHandlerMechanismForUnitTest();
 		IIdType id1 = myPatientDao.update(pt1, "Patient?name=FAMILY1&organization:Organization=ORG").getId().toUnqualifiedVersionless();
-		assertEquals(SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
+		assertEquals(SearchBuilder.getLastHandlerParamsForUnitTest(), SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
 		uniques = myResourceIndexedCompositeStringUniqueDao.findAll();
 		assertEquals(1, uniques.size());
 		assertEquals("Patient/" + id1.getIdPart(), uniques.get(0).getResource().getIdDt().toUnqualifiedVersionless().getValue());
@@ -883,7 +905,7 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 
 		SearchBuilder.resetLastHandlerMechanismForUnitTest();
 		id1 = myPatientDao.update(pt1, "Patient?name=FAMILY1&organization:Organization=ORG").getId().toUnqualifiedVersionless();
-		assertEquals(SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
+		assertEquals(SearchBuilder.getLastHandlerParamsForUnitTest(), SearchBuilder.HandlerTypeEnum.UNIQUE_INDEX, SearchBuilder.getLastHandlerMechanismForUnitTest());
 		uniques = myResourceIndexedCompositeStringUniqueDao.findAll();
 		assertEquals(1, uniques.size());
 		assertEquals("Patient/" + id1.getIdPart(), uniques.get(0).getResource().getIdDt().toUnqualifiedVersionless().getValue());
@@ -1116,8 +1138,9 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 		pt2.setActive(false);
 		myPatientDao.create(pt1).getId().toUnqualifiedVersionless();
 
-		mySystemDao.markAllResourcesForReindexing();
-		mySystemDao.performReindexingPass(1000);
+		myResourceReindexingSvc.markAllResourcesForReindexing();
+		myResourceReindexingSvc.forceReindexingPass();
+		myResourceReindexingSvc.forceReindexingPass();
 
 		List<ResourceIndexedCompositeStringUnique> uniques = myResourceIndexedCompositeStringUniqueDao.findAll();
 		assertEquals(uniques.toString(), 1, uniques.size());
@@ -1126,8 +1149,9 @@ public class FhirResourceDaoR4UniqueSearchParamTest extends BaseJpaR4Test {
 
 		myResourceIndexedCompositeStringUniqueDao.deleteAll();
 
-		mySystemDao.markAllResourcesForReindexing();
-		mySystemDao.performReindexingPass(1000);
+		myResourceReindexingSvc.markAllResourcesForReindexing();
+		myResourceReindexingSvc.forceReindexingPass();
+		myResourceReindexingSvc.forceReindexingPass();
 
 		uniques = myResourceIndexedCompositeStringUniqueDao.findAll();
 		assertEquals(uniques.toString(), 1, uniques.size());

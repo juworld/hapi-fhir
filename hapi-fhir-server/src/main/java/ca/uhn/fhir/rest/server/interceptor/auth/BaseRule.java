@@ -9,9 +9,9 @@ package ca.uhn.fhir.rest.server.interceptor.auth;
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -35,6 +35,7 @@ abstract class BaseRule implements IAuthRule {
 	private String myName;
 	private PolicyEnum myMode;
 	private List<IAuthRuleTester> myTesters;
+	private RuleBuilder.ITenantApplicabilityChecker myTenantApplicabilityChecker;
 
 	BaseRule(String theRuleName) {
 		myName = theRuleName;
@@ -51,7 +52,7 @@ abstract class BaseRule implements IAuthRule {
 	public void addTesters(List<IAuthRuleTester> theTesters) {
 		theTesters.forEach(this::addTester);
 	}
-	
+
 	boolean applyTesters(RestOperationTypeEnum theOperation, RequestDetails theRequestDetails, IIdType theInputResourceId, IBaseResource theInputResource, IBaseResource theOutputResource) {
 		boolean retVal = true;
 		if (theOutputResource == null) {
@@ -69,13 +70,22 @@ abstract class BaseRule implements IAuthRule {
 		return myMode;
 	}
 
-	void setMode(PolicyEnum theRuleMode) {
+	BaseRule setMode(PolicyEnum theRuleMode) {
 		myMode = theRuleMode;
+		return this;
 	}
 
 	@Override
 	public String getName() {
 		return myName;
+	}
+
+	public RuleBuilder.ITenantApplicabilityChecker getTenantApplicabilityChecker() {
+		return myTenantApplicabilityChecker;
+	}
+
+	public final void setTenantApplicabilityChecker(RuleBuilder.ITenantApplicabilityChecker theTenantApplicabilityChecker) {
+		myTenantApplicabilityChecker = theTenantApplicabilityChecker;
 	}
 
 	public List<IAuthRuleTester> getTesters() {
@@ -85,8 +95,17 @@ abstract class BaseRule implements IAuthRule {
 		return Collections.unmodifiableList(myTesters);
 	}
 
+	public boolean isOtherTenant(RequestDetails theRequestDetails) {
+		boolean otherTenant = false;
+		if (getTenantApplicabilityChecker() != null) {
+			if (!getTenantApplicabilityChecker().applies(theRequestDetails)) {
+				otherTenant = true;
+			}
+		}
+		return otherTenant;
+	}
+
 	Verdict newVerdict() {
 		return new Verdict(myMode, this);
 	}
-
 }

@@ -21,13 +21,13 @@ package ca.uhn.fhir.jpa.subscription;
  */
 
 import ca.uhn.fhir.context.FhirContext;
-import ca.uhn.fhir.rest.api.RestOperationTypeEnum;
 import com.fasterxml.jackson.annotation.*;
 import com.google.gson.Gson;
+import org.apache.commons.lang3.Validate;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 
-import java.io.Serializable;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonAutoDetect(creatorVisibility = JsonAutoDetect.Visibility.NONE, fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
@@ -39,28 +39,37 @@ public class ResourceDeliveryMessage {
 	private transient CanonicalSubscription mySubscription;
 	@JsonProperty("subscription")
 	private String mySubscriptionString;
+	@JsonProperty("payload")
+	private String myPayloadString;
 	@JsonIgnore
 	private transient IBaseResource myPayload;
-	@JsonProperty("payload")
-	private String myPayoadString;
 	@JsonProperty("payloadId")
 	private String myPayloadId;
 	@JsonProperty("operationType")
-	private RestOperationTypeEnum myOperationType;
+	private ResourceModifiedMessage.OperationTypeEnum myOperationType;
 
-	public RestOperationTypeEnum getOperationType() {
+	public ResourceModifiedMessage.OperationTypeEnum getOperationType() {
 		return myOperationType;
 	}
 
-	public void setOperationType(RestOperationTypeEnum theOperationType) {
+	/**
+	 * Constructor
+	 */
+	public ResourceDeliveryMessage() {
+		super();
+	}
+
+	public void setOperationType(ResourceModifiedMessage.OperationTypeEnum theOperationType) {
 		myOperationType = theOperationType;
 	}
 
 	public IBaseResource getPayload(FhirContext theCtx) {
-		if (myPayload == null && myPayoadString != null) {
-			myPayload = theCtx.newJsonParser().parseResource(myPayoadString);
+		IBaseResource retVal = myPayload;
+		if (retVal == null && isNotBlank(myPayloadString)) {
+			retVal = theCtx.newJsonParser().parseResource(myPayloadString);
+			myPayload = retVal;
 		}
-		return myPayload;
+		return retVal;
 	}
 
 	public IIdType getPayloadId(FhirContext theCtx) {
@@ -87,7 +96,7 @@ public class ResourceDeliveryMessage {
 
 	public void setPayload(FhirContext theCtx, IBaseResource thePayload) {
 		myPayload = thePayload;
-		myPayoadString = theCtx.newJsonParser().encodeResourceToString(thePayload);
+		myPayloadString = theCtx.newJsonParser().encodeResourceToString(thePayload);
 	}
 
 	public void setPayloadId(IIdType thePayloadId) {

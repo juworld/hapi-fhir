@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -42,14 +43,19 @@ public interface IResourceTableDao extends JpaRepository<ResourceTable, Long> {
 	@Query("SELECT t.myId FROM ResourceTable t WHERE t.myId = :resid AND t.myResourceType = :restype AND t.myDeleted IS NOT NULL")
 	Slice<Long> findIdsOfDeletedResourcesOfType(Pageable thePageable, @Param("resid") Long theResourceId, @Param("restype") String theResourceName);
 
-	@Query("SELECT t.myId FROM ResourceTable t WHERE t.myIndexStatus IS NULL")
-	Slice<Long> findUnindexed(Pageable thePageRequest);
+	@Query("SELECT t.myResourceType as type, COUNT(t.myResourceType) as count FROM ResourceTable t GROUP BY t.myResourceType")
+	List<Map<?, ?>> getResourceCounts();
 
-	@Query("SELECT t.myResourceType as type, COUNT(*) as count FROM ResourceTable t GROUP BY t.myResourceType")
-	List<Map<?,?>> getResourceCounts();
+	@Query("SELECT t.myId FROM ResourceTable t WHERE t.myUpdated >= :low AND t.myUpdated <= :high ORDER BY t.myUpdated DESC")
+	Slice<Long> findIdsOfResourcesWithinUpdatedRangeOrderedFromNewest(Pageable thePage, @Param("low") Date theLow, @Param("high") Date theHigh);
+
+	@Query("SELECT t.myId FROM ResourceTable t WHERE t.myUpdated >= :low AND t.myUpdated <= :high ORDER BY t.myUpdated ASC")
+	Slice<Long> findIdsOfResourcesWithinUpdatedRangeOrderedFromOldest(Pageable thePage, @Param("low") Date theLow, @Param("high") Date theHigh);
+
+	@Query("SELECT t.myId FROM ResourceTable t WHERE t.myUpdated >= :low AND t.myUpdated <= :high AND t.myResourceType = :restype ORDER BY t.myUpdated ASC")
+	Slice<Long> findIdsOfResourcesWithinUpdatedRangeOrderedFromOldest(Pageable thePage, @Param("restype") String theResourceType, @Param("low") Date theLow, @Param("high") Date theHigh);
 
 	@Modifying
-	@Query("UPDATE ResourceTable r SET r.myIndexStatus = null WHERE r.myResourceType = :restype")
-	int markResourcesOfTypeAsRequiringReindexing(@Param("restype") String theResourceType);
-
+	@Query("UPDATE ResourceTable t SET t.myIndexStatus = :status WHERE t.myId = :id")
+	void updateIndexStatus(@Param("id") Long theId, @Param("status") Long theIndexStatus);
 }

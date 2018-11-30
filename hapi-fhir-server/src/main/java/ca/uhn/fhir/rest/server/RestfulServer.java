@@ -26,6 +26,7 @@ import ca.uhn.fhir.context.ProvidedResourceScanner;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
 import ca.uhn.fhir.context.api.AddProfileTagEnum;
 import ca.uhn.fhir.context.api.BundleInclusionRule;
+import ca.uhn.fhir.model.primitive.InstantDt;
 import ca.uhn.fhir.parser.IParser;
 import ca.uhn.fhir.rest.annotation.Destroy;
 import ca.uhn.fhir.rest.annotation.IdParam;
@@ -119,12 +120,12 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	/**
 	 * This is configurable but by default we just use HAPI version
 	 */
-	private String myServerVersion = VersionUtil.getVersion();
+	private String myServerVersion = createPoweredByHeaderProductVersion();
 	private boolean myStarted;
-	private Map<String, IResourceProvider> myTypeToProvider = new HashMap<>();
 	private boolean myUncompressIncomingContents = true;
 	private boolean myUseBrowserFriendlyContentTypes;
 	private ITenantIdentificationStrategy myTenantIdentificationStrategy;
+	private Date myConformanceDate;
 
 	/**
 	 * Constructor. Note that if no {@link FhirContext} is passed in to the server (either through the constructor, or
@@ -158,8 +159,10 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	 * </p>
 	 */
 	public void addHeadersToResponse(HttpServletResponse theHttpResponse) {
-		String b = createPoweredByHeader();
-		theHttpResponse.addHeader("X-Powered-By", b);
+		String poweredByHeader = createPoweredByHeader();
+		if (isNotBlank(poweredByHeader)) {
+			theHttpResponse.addHeader(Constants.POWERED_BY_HEADER, poweredByHeader);
+		}
 	}
 
 	private void addLocationHeader(RequestDetails theRequest, HttpServletResponse theResponse, MethodOutcome response, String headerLocation, String resourceName) {
@@ -192,19 +195,14 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		result.setServerName(getServerName());
 		result.setFhirContext(getFhirContext());
 		result.setServerAddressStrategy(myServerAddressStrategy);
-		InputStream inputStream = null;
-		try {
-			inputStream = getClass().getResourceAsStream("/META-INF/MANIFEST.MF");
+		try (InputStream inputStream = getClass().getResourceAsStream("/META-INF/MANIFEST.MF")) {
 			if (inputStream != null) {
 				Manifest manifest = new Manifest(inputStream);
-				result.setConformanceDate(manifest.getMainAttributes().getValue("Build-Time"));
+				String value = manifest.getMainAttributes().getValue("Build-Time");
+				result.setConformanceDate(new InstantDt(value));
 			}
-		} catch (IOException e) {
+		} catch (Exception e) {
 			// fall through
-		} finally {
-			if (inputStream != null) {
-				IOUtils.closeQuietly(inputStream);
-			}
 		}
 		return result;
 	}
@@ -213,12 +211,21 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		return Lists.newArrayList("FHIR Server", "FHIR " + myFhirContext.getVersion().getVersion().getFhirVersionString() + "/" + myFhirContext.getVersion().getVersion().name());
 	}
 
+	/**
+	 * Subclasses may override to provide their own powered by
+	 * header. Note that if you want to be nice and still credit HAPI
+	 * FHIR you could consider overriding
+	 * {@link #createPoweredByAttributes()} instead and adding your own
+	 * fragments to the list.
+	 */
 	protected String createPoweredByHeader() {
 		StringBuilder b = new StringBuilder();
 		b.append(createPoweredByHeaderProductName());
 		b.append(" ");
-		b.append(VersionUtil.getVersion());
-		b.append(" REST Server (");
+		b.append(createPoweredByHeaderProductVersion());
+		b.append(" ");
+		b.append(createPoweredByHeaderComponentName());
+		b.append(" (");
 
 		List<String> poweredByAttributes = createPoweredByAttributes();
 		for (ListIterator<String> iter = poweredByAttributes.listIterator(); iter.hasNext(); ) {
@@ -232,8 +239,31 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		return b.toString();
 	}
 
+	/**
+	 * Subclasses my override
+	 *
+	 * @see #createPoweredByHeader()
+	 */
+	protected String createPoweredByHeaderComponentName() {
+		return "REST Server";
+	}
+
+	/**
+	 * Subclasses my override
+	 *
+	 * @see #createPoweredByHeader()
+	 */
 	protected String createPoweredByHeaderProductName() {
 		return "HAPI FHIR";
+	}
+
+	/**
+	 * Subclasses my override
+	 *
+	 * @see #createPoweredByHeader()
+	 */
+	protected String createPoweredByHeaderProductVersion() {
+		return VersionUtil.getVersion();
 	}
 
 	@Override
@@ -270,7 +300,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		} else {
 			resourceBinding = myResourceNameToBinding.get(resourceName);
 			if (resourceBinding == null) {
-				throw new ResourceNotFoundException("Unknown resource type '" + resourceName + "' - Server knows how to handle: " + myResourceNameToBinding.keySet());
+				throwUnknownResourceTypeException(resourceName);
 			}
 		}
 
@@ -286,7 +316,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 			if (isBlank(requestPath)) {
 				throw new InvalidRequestException(myFhirContext.getLocalizer().getMessage(RestfulServer.class, "rootRequest"));
 			}
-			throw new InvalidRequestException(myFhirContext.getLocalizer().getMessage(RestfulServer.class, "unknownMethod", requestType.name(), requestPath, requestDetails.getParameters().keySet()));
+			throwUnknownFhirOperationException(requestDetails, requestPath, requestType);
 		}
 		return resourceMethod;
 	}
@@ -316,20 +346,6 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		handleRequest(RequestTypeEnum.PUT, request, response);
 	}
 
-	/**
-	 * Count length of URL string, but treating unescaped sequences (e.g. ' ') as their unescaped equivalent (%20)
-	 */
-	protected int escapedLength(String theServletPath) {
-		int delta = 0;
-		for (int i = 0; i < theServletPath.length(); i++) {
-			char next = theServletPath.charAt(i);
-			if (next == ' ') {
-				delta = delta + 2;
-			}
-		}
-		return theServletPath.length() + delta;
-	}
-
 	private void findResourceMethods(Object theProvider) {
 
 		ourLog.info("Scanning type for RESTful methods: {}", theProvider.getClass());
@@ -345,7 +361,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		try {
 			count += findResourceMethods(theProvider, clazz);
 		} catch (ConfigurationException e) {
-			throw new ConfigurationException("Failure scanning class " + clazz.getSimpleName() + ": " + e.getMessage());
+			throw new ConfigurationException("Failure scanning class " + clazz.getSimpleName() + ": " + e.getMessage(), e);
 		}
 		if (count == 0) {
 			throw new ConfigurationException("Did not find any annotated RESTful methods on provider class " + theProvider.getClass().getCanonicalName());
@@ -539,10 +555,24 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	 *
 	 * @param theList The list of interceptors (may be null)
 	 */
-	public void setInterceptors(IServerInterceptor... theList) {
+	public void setInterceptors(List<IServerInterceptor> theList) {
 		myInterceptors.clear();
 		if (theList != null) {
-			myInterceptors.addAll(Arrays.asList(theList));
+			myInterceptors.addAll(theList);
+		}
+	}
+
+	/**
+	 * Sets (or clears) the list of interceptors
+	 *
+	 * @param theInterceptors The list of interceptors (may be null)
+	 */
+	public void setInterceptors(IServerInterceptor... theInterceptors) {
+		Validate.noNullElements(theInterceptors, "theInterceptors must not contain any null elements");
+
+		myInterceptors.clear();
+		if (theInterceptors != null) {
+			myInterceptors.addAll(Arrays.asList(theInterceptors));
 		}
 	}
 
@@ -572,7 +602,18 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	 *
 	 * @see #setResourceProviders(Collection)
 	 */
+	public void setPlainProviders(Object... theProv) {
+		setPlainProviders(Arrays.asList(theProv));
+	}
+
+	/**
+	 * Sets the non-resource specific providers which implement method calls on this server.
+	 *
+	 * @see #setResourceProviders(Collection)
+	 */
 	public void setPlainProviders(Collection<Object> theProviders) {
+		Validate.noNullElements(theProviders, "theProviders must not contain any null elements");
+
 		myPlainProviders.clear();
 		if (theProviders != null) {
 			myPlainProviders.addAll(theProviders);
@@ -588,6 +629,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	 * @param servletPath        the servelet path
 	 * @return created resource path
 	 */
+	// NOTE: Don't make this a static method!! People want to override it
 	protected String getRequestPath(String requestFullPath, String servletContextPath, String servletPath) {
 		return requestFullPath.substring(escapedLength(servletContextPath) + escapedLength(servletPath));
 	}
@@ -606,10 +648,22 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	/**
 	 * Sets the resource providers for this server
 	 */
-	public void setResourceProviders(Collection<IResourceProvider> theResourceProviders) {
+	public void setResourceProviders(IResourceProvider... theResourceProviders) {
 		myResourceProviders.clear();
 		if (theResourceProviders != null) {
-			myResourceProviders.addAll(theResourceProviders);
+			myResourceProviders.addAll(Arrays.asList(theResourceProviders));
+		}
+	}
+
+	/**
+	 * Sets the resource providers for this server
+	 */
+	public void setResourceProviders(Collection<IResourceProvider> theProviders) {
+		Validate.noNullElements(theProviders, "theProviders must not contain any null elements");
+
+		myResourceProviders.clear();
+		if (theProviders != null) {
+			myResourceProviders.addAll(theProviders);
 		}
 	}
 
@@ -632,8 +686,6 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 
 	/**
 	 * Returns the server base URL (with no trailing '/') for a given request
-	 *
-	 * @param theRequest
 	 */
 	public String getServerBaseForRequest(ServletRequestDetails theRequest) {
 		String fhirServerBase;
@@ -694,9 +746,9 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		// passing the server into the constructor. Having that sort
 		// of cross linkage causes reference cycles in Spring wiring
 		try {
-			Method setRestfulServer = theServerConformanceProvider.getClass().getMethod("setRestfulServer", new Class[] {RestfulServer.class});
+			Method setRestfulServer = theServerConformanceProvider.getClass().getMethod("setRestfulServer", RestfulServer.class);
 			if (setRestfulServer != null) {
-				setRestfulServer.invoke(theServerConformanceProvider, new Object[] {this});
+				setRestfulServer.invoke(theServerConformanceProvider, this);
 			}
 		} catch (Exception e) {
 			ourLog.warn("Error calling IServerConformanceProvider.setRestfulServer", e);
@@ -799,7 +851,20 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 			}
 
 			if (params == null) {
-				params = new HashMap<>(theRequest.getParameterMap());
+
+				// If the request is coming in with a content-encoding, don't try to
+				// load the params from the content.
+				if (isNotBlank(theRequest.getHeader(Constants.HEADER_CONTENT_ENCODING))) {
+					if (isNotBlank(theRequest.getQueryString())) {
+						params = UrlUtil.parseQueryString(theRequest.getQueryString());
+					} else {
+						params = Collections.emptyMap();
+					}
+				}
+
+				if (params == null) {
+					params = new HashMap<>(theRequest.getParameterMap());
+				}
 			}
 
 			requestDetails.setParameters(params);
@@ -1011,9 +1076,8 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 						invokeInitialize(iResourceProvider);
 					}
 				}
-				if (confProvider != null) {
-					invokeInitialize(confProvider);
-				}
+
+				invokeInitialize(confProvider);
 				if (getPlainProviders() != null) {
 					for (Object next : getPlainProviders()) {
 						invokeInitialize(next);
@@ -1218,7 +1282,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		String operation = null;
 		String compartment = null;
 		if (tok.hasMoreTokens()) {
-			resourceName = tok.nextToken();
+			resourceName = tok.nextTokenUnescapedAndSanitized();
 			if (partIsOperation(resourceName)) {
 				operation = resourceName;
 				resourceName = null;
@@ -1227,7 +1291,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		theRequestDetails.setResourceName(resourceName);
 
 		if (tok.hasMoreTokens()) {
-			String nextString = tok.nextToken();
+			String nextString = tok.nextTokenUnescapedAndSanitized();
 			if (partIsOperation(nextString)) {
 				operation = nextString;
 			} else {
@@ -1237,10 +1301,10 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		}
 
 		if (tok.hasMoreTokens()) {
-			String nextString = tok.nextToken();
+			String nextString = tok.nextTokenUnescapedAndSanitized();
 			if (nextString.equals(Constants.PARAM_HISTORY)) {
 				if (tok.hasMoreTokens()) {
-					String versionString = tok.nextToken();
+					String versionString = tok.nextTokenUnescapedAndSanitized();
 					if (id == null) {
 						throw new InvalidRequestException("Don't know how to handle request path: " + theRequestPath);
 					}
@@ -1262,7 +1326,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		String secondaryOperation = null;
 
 		while (tok.hasMoreTokens()) {
-			String nextString = tok.nextToken();
+			String nextString = tok.nextTokenUnescapedAndSanitized();
 			if (operation == null) {
 				operation = nextString;
 			} else if (secondaryOperation == null) {
@@ -1296,15 +1360,17 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	}
 
 	/**
-	 * Register a group of providers. These could be Resource Providers, "plain" providers or a mixture of the two.
+	 * Register a group of theProviders. These could be Resource Providers, "plain" theProviders or a mixture of the two.
 	 *
-	 * @param providers a {@code Collection} of providers. The parameter could be null or an empty {@code Collection}
+	 * @param theProviders a {@code Collection} of theProviders. The parameter could be null or an empty {@code Collection}
 	 */
-	public void registerProviders(Collection<? extends Object> providers) {
+	public void registerProviders(Collection<?> theProviders) {
+		Validate.noNullElements(theProviders, "theProviders must not contain any null elements");
+
 		myProviderRegistrationMutex.lock();
 		try {
 			if (!myStarted) {
-				for (Object provider : providers) {
+				for (Object provider : theProviders) {
 					ourLog.info("Registration of provider [" + provider.getClass().getName() + "] will be delayed until FHIR server startup");
 					if (provider instanceof IResourceProvider) {
 						myResourceProviders.add((IResourceProvider) provider);
@@ -1317,19 +1383,21 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		} finally {
 			myProviderRegistrationMutex.unlock();
 		}
-		registerProviders(providers, false);
+		registerProviders(theProviders, false);
 	}
 
 	/*
-	 * Inner method to actually register providers
+	 * Inner method to actually register theProviders
 	 */
-	protected void registerProviders(Collection<? extends Object> providers, boolean inInit) {
-		List<IResourceProvider> newResourceProviders = new ArrayList<IResourceProvider>();
-		List<Object> newPlainProviders = new ArrayList<Object>();
+	protected void registerProviders(Collection<?> theProviders, boolean inInit) {
+		Validate.noNullElements(theProviders, "theProviders must not contain any null elements");
+
+		List<IResourceProvider> newResourceProviders = new ArrayList<>();
+		List<Object> newPlainProviders = new ArrayList<>();
 		ProvidedResourceScanner providedResourceScanner = new ProvidedResourceScanner(getFhirContext());
 
-		if (providers != null) {
-			for (Object provider : providers) {
+		if (theProviders != null) {
+			for (Object provider : theProviders) {
 				if (provider instanceof IResourceProvider) {
 					IResourceProvider rsrcProvider = (IResourceProvider) provider;
 					Class<? extends IBaseResource> resourceType = rsrcProvider.getResourceType();
@@ -1337,14 +1405,9 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 						throw new NullPointerException("getResourceType() on class '" + rsrcProvider.getClass().getCanonicalName() + "' returned null");
 					}
 					String resourceName = getFhirContext().getResourceDefinition(resourceType).getName();
-					if (myTypeToProvider.containsKey(resourceName)) {
-						throw new ConfigurationException("Multiple resource providers return resource type[" + resourceName + "]: First[" + myTypeToProvider.get(resourceName).getClass().getCanonicalName()
-							+ "] and Second[" + rsrcProvider.getClass().getCanonicalName() + "]");
-					}
 					if (!inInit) {
 						myResourceProviders.add(rsrcProvider);
 					}
-					myTypeToProvider.put(resourceName, rsrcProvider);
 					providedResourceScanner.scanForProvidedResources(rsrcProvider);
 					newResourceProviders.add(rsrcProvider);
 				} else {
@@ -1356,7 +1419,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 
 			}
 			if (!newResourceProviders.isEmpty()) {
-				ourLog.info("Added {} resource provider(s). Total {}", newResourceProviders.size(), myTypeToProvider.size());
+				ourLog.info("Added {} resource provider(s). Total {}", newResourceProviders.size(), myResourceProviders.size());
 				for (IResourceProvider provider : newResourceProviders) {
 					assertProviderIsValid(provider);
 					findResourceMethods(provider);
@@ -1392,7 +1455,7 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		ourLog.info("Removing RESTful methods for: {}", theProvider.getClass());
 		Class<?> clazz = theProvider.getClass();
 		Class<?> supertype = clazz.getSuperclass();
-		Collection<String> resourceNames = new ArrayList<String>();
+		Collection<String> resourceNames = new ArrayList<>();
 		while (!Object.class.equals(supertype)) {
 			removeResourceMethods(theProvider, supertype, resourceNames);
 			supertype = supertype.getSuperclass();
@@ -1474,31 +1537,15 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 			case PUT:
 				doPut(theReq, theResp);
 				break;
+			case PATCH:
+			case TRACE:
+			case TRACK:
+			case HEAD:
+			case CONNECT:
 			default:
 				handleRequest(method, theReq, theResp);
 				break;
 		}
-	}
-
-	/**
-	 * Sets (or clears) the list of interceptors
-	 *
-	 * @param theList The list of interceptors (may be null)
-	 */
-	public void setInterceptors(List<IServerInterceptor> theList) {
-		myInterceptors.clear();
-		if (theList != null) {
-			myInterceptors.addAll(theList);
-		}
-	}
-
-	/**
-	 * Sets the non-resource specific providers which implement method calls on this server.
-	 *
-	 * @see #setResourceProviders(Collection)
-	 */
-	public void setPlainProviders(Object... theProv) {
-		setPlainProviders(Arrays.asList(theProv));
 	}
 
 	/**
@@ -1507,19 +1554,11 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 	 * @see #setResourceProviders(Collection)
 	 */
 	public void setProviders(Object... theProviders) {
+		Validate.noNullElements(theProviders, "theProviders must not contain any null elements");
+
 		myPlainProviders.clear();
 		if (theProviders != null) {
 			myPlainProviders.addAll(Arrays.asList(theProviders));
-		}
-	}
-
-	/**
-	 * Sets the resource providers for this server
-	 */
-	public void setResourceProviders(IResourceProvider... theResourceProviders) {
-		myResourceProviders.clear();
-		if (theResourceProviders != null) {
-			myResourceProviders.addAll(Arrays.asList(theResourceProviders));
 		}
 	}
 
@@ -1532,6 +1571,15 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		myTenantIdentificationStrategy = theTenantIdentificationStrategy;
 	}
 
+	protected void throwUnknownFhirOperationException(RequestDetails requestDetails, String requestPath, RequestTypeEnum theRequestType) {
+		FhirContext fhirContext = myFhirContext;
+		throwUnknownFhirOperationException(requestDetails, requestPath, theRequestType, fhirContext);
+	}
+
+	protected void throwUnknownResourceTypeException(String theResourceName) {
+		throw new ResourceNotFoundException("Unknown resource type '" + theResourceName + "' - Server knows how to handle: " + myResourceNameToBinding.keySet());
+	}
+
 	public void unregisterInterceptor(IServerInterceptor theInterceptor) {
 		Validate.notNull(theInterceptor, "Interceptor can not be null");
 		myInterceptors.remove(theInterceptor);
@@ -1539,13 +1587,10 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 
 	/**
 	 * Unregister one provider (either a Resource provider or a plain provider)
-	 *
-	 * @param provider
-	 * @throws Exception
 	 */
-	public void unregisterProvider(Object provider) throws Exception {
+	public void unregisterProvider(Object provider) {
 		if (provider != null) {
-			Collection<Object> providerList = new ArrayList<Object>(1);
+			Collection<Object> providerList = new ArrayList<>(1);
 			providerList.add(provider);
 			unregisterProviders(providerList);
 		}
@@ -1553,11 +1598,8 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 
 	/**
 	 * Unregister a {@code Collection} of providers
-	 *
-	 * @param providers
-	 * @throws Exception
 	 */
-	public void unregisterProviders(Collection<? extends Object> providers) throws Exception {
+	public void unregisterProviders(Collection<?> providers) {
 		ProvidedResourceScanner providedResourceScanner = new ProvidedResourceScanner(getFhirContext());
 		if (providers != null) {
 			for (Object provider : providers) {
@@ -1567,7 +1609,6 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 					IResourceProvider rsrcProvider = (IResourceProvider) provider;
 					Class<? extends IBaseResource> resourceType = rsrcProvider.getResourceType();
 					String resourceName = getFhirContext().getResourceDefinition(resourceType).getName();
-					myTypeToProvider.remove(resourceName);
 					providedResourceScanner.removeProvidedResources(rsrcProvider);
 				} else {
 					myPlainProviders.remove(provider);
@@ -1592,6 +1633,24 @@ public class RestfulServer extends HttpServlet implements IRestfulServer<Servlet
 		theResponse.setContentType("text/plain");
 		theResponse.setCharacterEncoding("UTF-8");
 		theResponse.getWriter().write(theException.getMessage());
+	}
+
+	/**
+	 * Count length of URL string, but treating unescaped sequences (e.g. ' ') as their unescaped equivalent (%20)
+	 */
+	protected static int escapedLength(String theServletPath) {
+		int delta = 0;
+		for (int i = 0; i < theServletPath.length(); i++) {
+			char next = theServletPath.charAt(i);
+			if (next == ' ') {
+				delta = delta + 2;
+			}
+		}
+		return theServletPath.length() + delta;
+	}
+
+	public static void throwUnknownFhirOperationException(RequestDetails requestDetails, String requestPath, RequestTypeEnum theRequestType, FhirContext theFhirContext) {
+		throw new InvalidRequestException(theFhirContext.getLocalizer().getMessage(RestfulServer.class, "unknownMethod", theRequestType.name(), requestPath, requestDetails.getParameters().keySet()));
 	}
 
 	private static boolean partIsOperation(String nextString) {

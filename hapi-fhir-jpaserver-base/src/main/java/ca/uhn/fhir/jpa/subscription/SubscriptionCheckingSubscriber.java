@@ -1,5 +1,30 @@
 package ca.uhn.fhir.jpa.subscription;
 
+import ca.uhn.fhir.context.RuntimeResourceDefinition;
+import ca.uhn.fhir.jpa.dao.IFhirResourceDao;
+import ca.uhn.fhir.jpa.dao.SearchParameterMap;
+import ca.uhn.fhir.jpa.provider.ServletSubRequestDetails;
+import ca.uhn.fhir.jpa.dao.MatchUrlService;
+import ca.uhn.fhir.jpa.subscription.matcher.ISubscriptionMatcher;
+import ca.uhn.fhir.rest.api.server.IBundleProvider;
+import ca.uhn.fhir.rest.api.server.RequestDetails;
+import org.apache.commons.lang3.StringUtils;
+import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IIdType;
+import org.hl7.fhir.r4.model.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Scope;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessagingException;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
+
 /*-
  * #%L
  * HAPI FHIR JPA Server
@@ -20,29 +45,19 @@ package ca.uhn.fhir.jpa.subscription;
  * #L%
  */
 
-import ca.uhn.fhir.context.RuntimeResourceDefinition;
-import ca.uhn.fhir.jpa.dao.BaseHapiFhirDao;
-import ca.uhn.fhir.jpa.dao.IFhirResourceDao;
-import ca.uhn.fhir.jpa.dao.SearchParameterMap;
-import ca.uhn.fhir.jpa.provider.ServletSubRequestDetails;
-import ca.uhn.fhir.rest.api.server.IBundleProvider;
-import ca.uhn.fhir.rest.api.server.RequestDetails;
-import org.apache.commons.lang3.StringUtils;
-import org.hl7.fhir.instance.model.api.IBaseResource;
-import org.hl7.fhir.instance.model.api.IIdType;
-import org.hl7.fhir.r4.model.Subscription;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.MessagingException;
-
-import java.util.List;
-
+@Component
+@Scope("prototype")
 public class SubscriptionCheckingSubscriber extends BaseSubscriptionSubscriber {
 	private Logger ourLog = LoggerFactory.getLogger(SubscriptionCheckingSubscriber.class);
 
-	public SubscriptionCheckingSubscriber(IFhirResourceDao theSubscriptionDao, Subscription.SubscriptionChannelType theChannelType, BaseSubscriptionInterceptor theSubscriptionInterceptor) {
-		super(theSubscriptionDao, theChannelType, theSubscriptionInterceptor);
+	private final ISubscriptionMatcher mySubscriptionMatcher;
+
+	@Autowired
+	private MatchUrlService myMatchUrlService;
+
+	public SubscriptionCheckingSubscriber(Subscription.SubscriptionChannelType theChannelType, BaseSubscriptionInterceptor theSubscriptionInterceptor, ISubscriptionMatcher theSubscriptionMatcher) {
+		super(theChannelType, theSubscriptionInterceptor);
+		this.mySubscriptionMatcher = theSubscriptionMatcher;
 	}
 
 	@Override
@@ -58,7 +73,9 @@ public class SubscriptionCheckingSubscriber extends BaseSubscriptionSubscriber {
 		switch (msg.getOperationType()) {
 			case CREATE:
 			case UPDATE:
+			case MANUALLY_TRIGGERED:
 				break;
+			case DELETE:
 			default:
 				ourLog.trace("Not processing modified message for {}", msg.getOperationType());
 				// ignore anything else
@@ -67,16 +84,22 @@ public class SubscriptionCheckingSubscriber extends BaseSubscriptionSubscriber {
 
 		IIdType id = msg.getId(getContext());
 		String resourceType = id.getResourceType();
-		String resourceId = id.getIdPart();
 
-		List<CanonicalSubscription> subscriptions = getSubscriptionInterceptor().getSubscriptions();
+		List<CanonicalSubscription> subscriptions = getSubscriptionInterceptor().getRegisteredSubscriptions();
 
-		ourLog.trace("Testing {} subscriptions for applicability");
+		ourLog.trace("Testing {} subscriptions for applicability", subscriptions.size());
 
 		for (CanonicalSubscription nextSubscription : subscriptions) {
 
 			String nextSubscriptionId = nextSubscription.getIdElement(getContext()).toUnqualifiedVersionless().getValue();
 			String nextCriteriaString = nextSubscription.getCriteriaString();
+
+			if (isNotBlank(msg.getSubscriptionId())) {
+				if (!msg.getSubscriptionId().equals(nextSubscriptionId)) {
+					ourLog.debug("Ignoring subscription {} because it is not {}", nextSubscriptionId, msg.getSubscriptionId());
+					continue;
+				}
+			}
 
 			if (StringUtils.isBlank(nextCriteriaString)) {
 				continue;
@@ -95,16 +118,7 @@ public class SubscriptionCheckingSubscriber extends BaseSubscriptionSubscriber {
 				continue;
 			}
 
-			// run the subscriptions query and look for matches, add the id as part of the criteria to avoid getting matches of previous resources rather than the recent resource
-			String criteria = nextCriteriaString;
-			criteria += "&_id=" + resourceType + "/" + resourceId;
-			criteria = massageCriteria(criteria);
-
-			IBundleProvider results = performSearch(criteria);
-
-			ourLog.debug("Subscription check found {} results for query: {}", results.size(), criteria);
-
-			if (results.size() == 0) {
+			if (!mySubscriptionMatcher.match(nextCriteriaString, msg).matched()) {
 				continue;
 			}
 
@@ -117,7 +131,12 @@ public class SubscriptionCheckingSubscriber extends BaseSubscriptionSubscriber {
 			deliveryMsg.setPayloadId(msg.getId(getContext()));
 
 			ResourceDeliveryJsonMessage wrappedMsg = new ResourceDeliveryJsonMessage(deliveryMsg);
-			getSubscriptionInterceptor().getDeliveryChannel().send(wrappedMsg);
+			MessageChannel deliveryChannel = getSubscriptionInterceptor().getDeliveryChannel(nextSubscription);
+			if (deliveryChannel != null) {
+				deliveryChannel.send(wrappedMsg);
+			} else {
+				ourLog.warn("Do not have deliovery channel for subscription {}", nextSubscription.getIdElement(getContext()));
+			}
 		}
 
 
@@ -135,7 +154,7 @@ public class SubscriptionCheckingSubscriber extends BaseSubscriptionSubscriber {
 	 */
 	protected IBundleProvider performSearch(String theCriteria) {
 		RuntimeResourceDefinition responseResourceDef = getSubscriptionDao().validateCriteriaAndReturnResourceDefinition(theCriteria);
-		SearchParameterMap responseCriteriaUrl = BaseHapiFhirDao.translateMatchUrl(getSubscriptionDao(), getSubscriptionDao().getContext(), theCriteria, responseResourceDef);
+		SearchParameterMap responseCriteriaUrl = myMatchUrlService.translateMatchUrl(theCriteria, responseResourceDef);
 
 		RequestDetails req = new ServletSubRequestDetails();
 		req.setSubRequest(true);

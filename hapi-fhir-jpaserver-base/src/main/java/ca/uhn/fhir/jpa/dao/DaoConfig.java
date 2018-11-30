@@ -1,11 +1,16 @@
 package ca.uhn.fhir.jpa.dao;
 
 import ca.uhn.fhir.jpa.entity.ResourceEncodingEnum;
+import ca.uhn.fhir.jpa.search.warm.WarmCacheEntry;
 import ca.uhn.fhir.jpa.util.JpaConstants;
 import ca.uhn.fhir.rest.server.interceptor.IServerInterceptor;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.Validate;
 import org.apache.commons.lang3.time.DateUtils;
+import org.hl7.fhir.r4.model.Bundle;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
@@ -51,18 +56,36 @@ public class DaoConfig {
 	 */
 	public static final Long DEFAULT_REUSE_CACHED_SEARCH_RESULTS_FOR_MILLIS = DateUtils.MILLIS_PER_MINUTE;
 	/**
-	 * Default value for {@link #setMaximumSearchResultCountInTransaction(Integer)}
-	 *
-	 * @see #setMaximumSearchResultCountInTransaction(Integer)
-	 */
-	private static final Integer DEFAULT_MAXIMUM_SEARCH_RESULT_COUNT_IN_TRANSACTION = null;
-	private IndexEnabledEnum myIndexMissingFieldsEnabled = IndexEnabledEnum.DISABLED;
-	/**
 	 * Default value for {@link #setTranslationCachesExpireAfterWriteInMinutes(Long)}: 60 minutes
 	 *
 	 * @see #setTranslationCachesExpireAfterWriteInMinutes(Long)
 	 */
 	public static final Long DEFAULT_TRANSLATION_CACHES_EXPIRE_AFTER_WRITE_IN_MINUTES = 60L;
+	/**
+	 * See {@link #setStatusBasedReindexingDisabled(boolean)}
+	 */
+	public static final String DISABLE_STATUS_BASED_REINDEX = "disable_status_based_reindex";
+	/**
+	 * Default value for {@link #setMaximumSearchResultCountInTransaction(Integer)}
+	 *
+	 * @see #setMaximumSearchResultCountInTransaction(Integer)
+	 */
+	private static final Integer DEFAULT_MAXIMUM_SEARCH_RESULT_COUNT_IN_TRANSACTION = null;
+	/**
+	 * Default {@link #setBundleTypesAllowedForStorage(Set)} value:
+	 * <ul>
+	 * <li>collection</li>
+	 * <li>document</li>
+	 * <li>message</li>
+	 * </ul>
+	 */
+	private static final Set<String> DEFAULT_BUNDLE_TYPES_ALLOWED_FOR_STORAGE = Collections.unmodifiableSet(new TreeSet<>(Sets.newHashSet(
+		Bundle.BundleType.COLLECTION.toCode(),
+		Bundle.BundleType.DOCUMENT.toCode(),
+		Bundle.BundleType.MESSAGE.toCode()
+	)));
+	private static final Logger ourLog = LoggerFactory.getLogger(DaoConfig.class);
+	private IndexEnabledEnum myIndexMissingFieldsEnabled = IndexEnabledEnum.DISABLED;
 	/**
 	 * update setter javadoc if default changes
 	 */
@@ -74,8 +97,7 @@ public class DaoConfig {
 	/**
 	 * update setter javadoc if default changes
 	 */
-	private boolean myAllowContainsSearches = true;
-
+	private boolean myAllowContainsSearches = false;
 	/**
 	 * update setter javadoc if default changes
 	 */
@@ -124,9 +146,18 @@ public class DaoConfig {
 	private boolean myAutoCreatePlaceholderReferenceTargets;
 	private Integer myCacheControlNoStoreMaxResultsUpperLimit = 1000;
 	private Integer myCountSearchResultsUpTo = null;
+	private boolean myStatusBasedReindexingDisabled;
 	private IdStrategyEnum myResourceServerIdStrategy = IdStrategyEnum.SEQUENTIAL_NUMERIC;
 	private boolean myMarkResourcesForReindexingUponSearchParameterChange;
 	private boolean myExpungeEnabled;
+	private int myReindexThreadCount;
+	private Set<String> myBundleTypesAllowedForStorage;
+	private boolean myValidateSearchParameterExpressionsOnSave = true;
+	private List<Integer> mySearchPreFetchThresholds = Arrays.asList(500, 2000, -1);
+	private List<WarmCacheEntry> myWarmCacheEntries = new ArrayList<>();
+	private boolean myDisableHashBasedSearches;
+	private boolean myEnableInMemorySubscriptionMatching = true;
+	private ClientIdStrategyEnum myResourceClientIdStrategy = ClientIdStrategyEnum.ALPHANUMERIC;
 
 	/**
 	 * Constructor
@@ -136,6 +167,55 @@ public class DaoConfig {
 		setSubscriptionPollDelay(0);
 		setSubscriptionPurgeInactiveAfterMillis(Long.MAX_VALUE);
 		setMarkResourcesForReindexingUponSearchParameterChange(true);
+		setReindexThreadCount(Runtime.getRuntime().availableProcessors());
+		setBundleTypesAllowedForStorage(DEFAULT_BUNDLE_TYPES_ALLOWED_FOR_STORAGE);
+
+		if ("true".equalsIgnoreCase(System.getProperty(DISABLE_STATUS_BASED_REINDEX))) {
+			ourLog.info("Status based reindexing is DISABLED");
+			setStatusBasedReindexingDisabled(true);
+		}
+	}
+
+	/**
+	 * Returns a set of searches that should be kept "warm", meaning that
+	 * searches will periodically be performed in the background to
+	 * keep results ready for this search
+	 */
+	public List<WarmCacheEntry> getWarmCacheEntries() {
+		if (myWarmCacheEntries == null) {
+			myWarmCacheEntries = new ArrayList<>();
+		}
+		return myWarmCacheEntries;
+	}
+
+	public void setWarmCacheEntries(List<WarmCacheEntry> theWarmCacheEntries) {
+		myWarmCacheEntries = theWarmCacheEntries;
+	}
+
+	/**
+	 * If set to <code>true</code> (default is false), the reindexing of search parameters
+	 * using a query on the HFJ_RESOURCE.SP_INDEX_STATUS column will be disabled completely.
+	 * This query is just not efficient on Oracle and bogs the system down when there are
+	 * a lot of resources. A more efficient way of doing this will be introduced
+	 * in the next release of HAPI FHIR.
+	 *
+	 * @since 3.5.0
+	 */
+	public boolean isStatusBasedReindexingDisabled() {
+		return myStatusBasedReindexingDisabled;
+	}
+
+	/**
+	 * If set to <code>true</code> (default is false), the reindexing of search parameters
+	 * using a query on the HFJ_RESOURCE.SP_INDEX_STATUS column will be disabled completely.
+	 * This query is just not efficient on Oracle and bogs the system down when there are
+	 * a lot of resources. A more efficient way of doing this will be introduced
+	 * in the next release of HAPI FHIR.
+	 *
+	 * @since 3.5.0
+	 */
+	public void setStatusBasedReindexingDisabled(boolean theStatusBasedReindexingDisabled) {
+		myStatusBasedReindexingDisabled = theStatusBasedReindexingDisabled;
 	}
 
 	/**
@@ -152,6 +232,26 @@ public class DaoConfig {
 		myTreatReferencesAsLogical.add(theTreatReferencesAsLogical);
 	}
 
+	/**
+	 * This setting specifies the bundle types (<code>Bundle.type</code>) that
+	 * are allowed to be stored as-is on the /Bundle endpoint.
+	 *
+	 * @see #DEFAULT_BUNDLE_TYPES_ALLOWED_FOR_STORAGE
+	 */
+	public Set<String> getBundleTypesAllowedForStorage() {
+		return myBundleTypesAllowedForStorage;
+	}
+
+	/**
+	 * This setting specifies the bundle types (<code>Bundle.type</code>) that
+	 * are allowed to be stored as-is on the /Bundle endpoint.
+	 *
+	 * @see #DEFAULT_BUNDLE_TYPES_ALLOWED_FOR_STORAGE
+	 */
+	public void setBundleTypesAllowedForStorage(Set<String> theBundleTypesAllowedForStorage) {
+		Validate.notNull(theBundleTypesAllowedForStorage, "theBundleTypesAllowedForStorage must not be null");
+		myBundleTypesAllowedForStorage = theBundleTypesAllowedForStorage;
+	}
 
 	/**
 	 * Specifies the highest number that a client is permitted to use in a
@@ -417,6 +517,13 @@ public class DaoConfig {
 	/**
 	 * This may be used to optionally register server interceptors directly against the DAOs.
 	 */
+	public void setInterceptors(List<IServerInterceptor> theInterceptors) {
+		myInterceptors = theInterceptors;
+	}
+
+	/**
+	 * This may be used to optionally register server interceptors directly against the DAOs.
+	 */
 	public void setInterceptors(IServerInterceptor... theInterceptor) {
 		setInterceptors(new ArrayList<IServerInterceptor>());
 		if (theInterceptor != null && theInterceptor.length != 0) {
@@ -470,6 +577,35 @@ public class DaoConfig {
 		myMaximumSearchResultCountInTransaction = theMaximumSearchResultCountInTransaction;
 	}
 
+	/**
+	 * This setting controls the number of threads allocated to resource reindexing
+	 * (which is only ever used if SearchParameters change, or a manual reindex is
+	 * triggered due to a HAPI FHIR upgrade or some other reason).
+	 * <p>
+	 * The default value is set to the number of available processors
+	 * (via <code>Runtime.getRuntime().availableProcessors()</code>). Value
+	 * for this setting must be a positive integer.
+	 * </p>
+	 */
+	public int getReindexThreadCount() {
+		return myReindexThreadCount;
+	}
+
+	/**
+	 * This setting controls the number of threads allocated to resource reindexing
+	 * (which is only ever used if SearchParameters change, or a manual reindex is
+	 * triggered due to a HAPI FHIR upgrade or some other reason).
+	 * <p>
+	 * The default value is set to the number of available processors
+	 * (via <code>Runtime.getRuntime().availableProcessors()</code>). Value
+	 * for this setting must be a positive integer.
+	 * </p>
+	 */
+	public void setReindexThreadCount(int theReindexThreadCount) {
+		myReindexThreadCount = theReindexThreadCount;
+		myReindexThreadCount = Math.max(myReindexThreadCount, 1); // Minimum of 1
+	}
+
 	public ResourceEncodingEnum getResourceEncoding() {
 		return myResourceEncoding;
 	}
@@ -509,8 +645,38 @@ public class DaoConfig {
 	}
 
 	/**
+	 * Controls the behaviour when a client-assigned ID is encountered, i.e. an HTTP PUT
+	 * on a resource ID that does not already exist in the database.
+	 * <p>
+	 * Default is {@link ClientIdStrategyEnum#ALPHANUMERIC}
+	 * </p>
+	 */
+	public ClientIdStrategyEnum getResourceClientIdStrategy() {
+		return myResourceClientIdStrategy;
+	}
+
+	/**
+	 * Controls the behaviour when a client-assigned ID is encountered, i.e. an HTTP PUT
+	 * on a resource ID that does not already exist in the database.
+	 * <p>
+	 * Default is {@link ClientIdStrategyEnum#ALPHANUMERIC}
+	 * </p>
+	 *
+	 * @param theResourceClientIdStrategy Must not be <code>null</code>
+	 */
+	public void setResourceClientIdStrategy(ClientIdStrategyEnum theResourceClientIdStrategy) {
+		Validate.notNull(theResourceClientIdStrategy, "theClientIdStrategy must not be null");
+		myResourceClientIdStrategy = theResourceClientIdStrategy;
+	}
+
+	/**
 	 * This setting configures the strategy to use in generating IDs for newly
 	 * created resources on the server. The default is {@link IdStrategyEnum#SEQUENTIAL_NUMERIC}.
+	 * <p>
+	 * This strategy is only used for server-assigned IDs, i.e. for HTTP POST
+	 * where the client is requesing that the server store a new resource and give
+	 * it an ID.
+	 * </p>
 	 */
 	public IdStrategyEnum getResourceServerIdStrategy() {
 		return myResourceServerIdStrategy;
@@ -519,8 +685,13 @@ public class DaoConfig {
 	/**
 	 * This setting configures the strategy to use in generating IDs for newly
 	 * created resources on the server. The default is {@link IdStrategyEnum#SEQUENTIAL_NUMERIC}.
+	 * <p>
+	 * This strategy is only used for server-assigned IDs, i.e. for HTTP POST
+	 * where the client is requesing that the server store a new resource and give
+	 * it an ID.
+	 * </p>
 	 *
-	 * @param theResourceIdStrategy The strategy. Must not be null.
+	 * @param theResourceIdStrategy The strategy. Must not be <code>null</code>.
 	 */
 	public void setResourceServerIdStrategy(IdStrategyEnum theResourceIdStrategy) {
 		Validate.notNull(theResourceIdStrategy, "theResourceIdStrategy must not be null");
@@ -640,9 +811,9 @@ public class DaoConfig {
 	 * references instead of being treated as real references.
 	 * <p>
 	 * A logical reference is a reference which is treated as an identifier, and
-	 * does not neccesarily resolve. See {@link "http://hl7.org/fhir/references.html"} for
+	 * does not neccesarily resolve. See <a href="http://hl7.org/fhir/references.html">references</a> for
 	 * a description of logical references. For example, the valueset
-	 * {@link "http://hl7.org/fhir/valueset-quantity-comparator.html"} is a logical
+	 * <a href="http://hl7.org/fhir/valueset-quantity-comparator.html">valueset-quantity-comparator</a> is a logical
 	 * reference.
 	 * </p>
 	 * <p>
@@ -665,9 +836,9 @@ public class DaoConfig {
 	 * references instead of being treated as real references.
 	 * <p>
 	 * A logical reference is a reference which is treated as an identifier, and
-	 * does not neccesarily resolve. See {@link "http://hl7.org/fhir/references.html"} for
+	 * does not neccesarily resolve. See <a href="http://hl7.org/fhir/references.html">references</a> for
 	 * a description of logical references. For example, the valueset
-	 * {@link "http://hl7.org/fhir/valueset-quantity-comparator.html"} is a logical
+	 * <a href="http://hl7.org/fhir/valueset-quantity-comparator.html">valueset-quantity-comparator</a> is a logical
 	 * reference.
 	 * </p>
 	 * <p>
@@ -689,7 +860,15 @@ public class DaoConfig {
 	 * If enabled, the server will support the use of :contains searches,
 	 * which are helpful but can have adverse effects on performance.
 	 * <p>
-	 * Default is <code>true</code>
+	 * Default is <code>false</code> (Note that prior to HAPI FHIR
+	 * 3.5.0 the default was <code>true</code>)
+	 * </p>
+	 * <p>
+	 * Note: If you change this value after data already has
+	 * already been stored in the database, you must for a reindexing
+	 * of all data in the database or resources may not be
+	 * searchable.
+	 * </p>
 	 */
 	public boolean isAllowContainsSearches() {
 		return myAllowContainsSearches;
@@ -699,7 +878,15 @@ public class DaoConfig {
 	 * If enabled, the server will support the use of :contains searches,
 	 * which are helpful but can have adverse effects on performance.
 	 * <p>
-	 * Default is <code>true</code>
+	 * Default is <code>false</code> (Note that prior to HAPI FHIR
+	 * 3.5.0 the default was <code>true</code>)
+	 * </p>
+	 * <p>
+	 * Note: If you change this value after data already has
+	 * already been stored in the database, you must for a reindexing
+	 * of all data in the database or resources may not be
+	 * searchable.
+	 * </p>
 	 */
 	public void setAllowContainsSearches(boolean theAllowContainsSearches) {
 		this.myAllowContainsSearches = theAllowContainsSearches;
@@ -1107,6 +1294,34 @@ public class DaoConfig {
 	}
 
 	/**
+	 * If <code>true</code> (default is <code>true</code>), before allowing a
+	 * SearchParameter resource to be stored (create, update, etc.) the
+	 * expression will be performed against an empty resource to ensure that
+	 * the FHIRPath executor is able to process it.
+	 * <p>
+	 * This should proabably always be set to true, but is configurable
+	 * in order to support some unit tests.
+	 * </p>
+	 */
+	public boolean isValidateSearchParameterExpressionsOnSave() {
+		return myValidateSearchParameterExpressionsOnSave;
+	}
+
+	/**
+	 * If <code>true</code> (default is <code>true</code>), before allowing a
+	 * SearchParameter resource to be stored (create, update, etc.) the
+	 * expression will be performed against an empty resource to ensure that
+	 * the FHIRPath executor is able to process it.
+	 * <p>
+	 * This should proabably always be set to true, but is configurable
+	 * in order to support some unit tests.
+	 * </p>
+	 */
+	public void setValidateSearchParameterExpressionsOnSave(boolean theValidateSearchParameterExpressionsOnSave) {
+		myValidateSearchParameterExpressionsOnSave = theValidateSearchParameterExpressionsOnSave;
+	}
+
+	/**
 	 * Do not call this method, it exists only for legacy reasons. It
 	 * will be removed in a future version. Configure the page size on your
 	 * paging provider instead.
@@ -1129,13 +1344,6 @@ public class DaoConfig {
 	@Deprecated
 	public void setIncludeLimit(@SuppressWarnings("unused") int theIncludeLimit) {
 		// nothing
-	}
-
-	/**
-	 * This may be used to optionally register server interceptors directly against the DAOs.
-	 */
-	public void setInterceptors(List<IServerInterceptor> theInterceptors) {
-		myInterceptors = theInterceptors;
 	}
 
 	/**
@@ -1169,16 +1377,120 @@ public class DaoConfig {
 		setSubscriptionPurgeInactiveAfterMillis(theSeconds * DateUtils.MILLIS_PER_SECOND);
 	}
 
-	private static void validateTreatBaseUrlsAsLocal(String theUrl) {
-		Validate.notBlank(theUrl, "Base URL must not be null or empty");
+	/**
+	 * This setting sets the number of search results to prefetch. For example, if this list
+	 * is set to [100, 1000, -1] then the server will initially load 100 results and not
+	 * attempt to load more. If the user requests subsequent page(s) of results and goes
+	 * past 100 results, the system will load the next 900 (up to the following threshold of 1000).
+	 * The system will progressively work through these thresholds.
+	 *
+	 * <p>
+	 * A threshold of -1 means to load all results. Note that if the final threshold is a
+	 * number other than <code>-1</code>, the system will never prefetch more than the
+	 * given number.
+	 * </p>
+	 */
+	public List<Integer> getSearchPreFetchThresholds() {
+		return mySearchPreFetchThresholds;
+	}
 
-		int starIdx = theUrl.indexOf('*');
-		if (starIdx != -1) {
-			if (starIdx != theUrl.length() - 1) {
-				throw new IllegalArgumentException("Base URL wildcard character (*) can only appear at the end of the string: " + theUrl);
-			}
+	/**
+	 * This setting sets the number of search results to prefetch. For example, if this list
+	 * is set to [100, 1000, -1] then the server will initially load 100 results and not
+	 * attempt to load more. If the user requests subsequent page(s) of results and goes
+	 * past 100 results, the system will load the next 900 (up to the following threshold of 1000).
+	 * The system will progressively work through these thresholds.
+	 *
+	 * <p>
+	 * A threshold of -1 means to load all results. Note that if the final threshold is a
+	 * number other than <code>-1</code>, the system will never prefetch more than the
+	 * given number.
+	 * </p>
+	 */
+	public void setSearchPreFetchThresholds(List<Integer> thePreFetchThresholds) {
+		Validate.isTrue(thePreFetchThresholds.size() > 0, "thePreFetchThresholds must not be empty");
+		int last = 0;
+		for (Integer nextInteger : thePreFetchThresholds) {
+			int nextInt = nextInteger.intValue();
+			Validate.isTrue(nextInt > 0 || nextInt == -1, nextInt + " is not a valid prefetch threshold");
+			Validate.isTrue(nextInt != last, "Prefetch thresholds must be sequential");
+			Validate.isTrue(nextInt > last || nextInt == -1, "Prefetch thresholds must be sequential");
+			Validate.isTrue(last != -1, "Prefetch thresholds must be sequential");
+			last = nextInt;
 		}
+		mySearchPreFetchThresholds = thePreFetchThresholds;
+	}
 
+	/**
+	 * If set to <code>true</code> (default is false) the server will not use
+	 * hash based searches. These searches were introduced in HAPI FHIR 3.5.0
+	 * and are the new default way of searching. However they require a very
+	 * large data migration if an existing system has a large amount of data
+	 * so this setting can be used to use the old search mechanism while data
+	 * is migrated.
+	 *
+	 * @since 3.6.0
+	 */
+	public boolean getDisableHashBasedSearches() {
+		return myDisableHashBasedSearches;
+	}
+
+	/**
+	 * If set to <code>true</code> (default is false) the server will not use
+	 * hash based searches. These searches were introduced in HAPI FHIR 3.5.0
+	 * and are the new default way of searching. However they require a very
+	 * large data migration if an existing system has a large amount of data
+	 * so this setting can be used to use the old search mechanism while data
+	 * is migrated.
+	 *
+	 * @since 3.6.0
+	 */
+	public void setDisableHashBasedSearches(boolean theDisableHashBasedSearches) {
+		myDisableHashBasedSearches = theDisableHashBasedSearches;
+	}
+
+	/**
+	 * If set to <code>false</code> (default is true) the server will not use
+	 * in-memory subscription searching and instead use the database matcher for all subscription
+	 * criteria matching.
+	 * <p>
+	 * When there are subscriptions registered
+	 * on the server, the default behaviour is to compare the changed resource to the
+	 * subscription criteria directly in-memory without going out to the database.
+	 * Certain types of subscription criteria, e.g. chained references of queries with
+	 * qualifiers or prefixes, are not supported by the in-memory matcher and will fall back
+	 * to a database matcher.
+	 * <p>
+	 * The database matcher performs a query against the
+	 * database by prepending ?id=XYZ to the subscription criteria where XYZ is the id of the changed entity
+	 *
+	 * @since 3.6.1
+	 */
+
+	public boolean isEnableInMemorySubscriptionMatching() {
+		return myEnableInMemorySubscriptionMatching;
+	}
+
+	/**
+	 * If set to <code>false</code> (default is true) the server will not use
+	 * in-memory subscription searching and instead use the database matcher for all subscription
+	 * criteria matching.
+	 * <p>
+	 * When there are subscriptions registered
+	 * on the server, the default behaviour is to compare the changed resource to the
+	 * subscription criteria directly in-memory without going out to the database.
+	 * Certain types of subscription criteria, e.g. chained references of queries with
+	 * qualifiers or prefixes, are not supported by the in-memory matcher and will fall back
+	 * to a database matcher.
+	 * <p>
+	 * The database matcher performs a query against the
+	 * database by prepending ?id=XYZ to the subscription criteria where XYZ is the id of the changed entity
+	 *
+	 * @since 3.6.1
+	 */
+
+	public void setEnableInMemorySubscriptionMatching(boolean theEnableInMemorySubscriptionMatching) {
+		myEnableInMemorySubscriptionMatching = theEnableInMemorySubscriptionMatching;
 	}
 
 	public enum IndexEnabledEnum {
@@ -1196,6 +1508,48 @@ public class DaoConfig {
 		 * Each resource will receive a randomly generated UUID
 		 */
 		UUID
+	}
+
+	public enum ClientIdStrategyEnum {
+		/**
+		 * Clients are not allowed to supply IDs for resources that do not
+		 * already exist
+		 */
+		NOT_ALLOWED,
+
+		/**
+		 * Clients may supply IDs but these IDs are not permitted to be purely
+		 * numeric. In other words, values such as "A", "A1" and "000A" would be considered
+		 * valid but "123" would not.
+		 * <p><b>This is the default setting.</b></p>
+		 */
+		ALPHANUMERIC,
+
+		/**
+		 * Clients may supply any ID including purely numeric IDs. Note that this setting should
+		 * only be set on an empty database, or on a database that has always had this setting
+		 * set as it causes a "forced ID" to be used for all resources.
+		 * <p>
+		 * Note that if you use this setting, it is highly recommended that you also
+		 * set the {@link #setResourceServerIdStrategy(IdStrategyEnum) ResourceServerIdStrategy}
+		 * to {@link IdStrategyEnum#UUID} in order to avoid any potential for conflicts. Otherwise
+		 * a database sequence will be used to generate IDs and these IDs can conflict with
+		 * client-assigned numeric IDs.
+		 * </P>
+		 */
+		ANY
+	}
+
+	private static void validateTreatBaseUrlsAsLocal(String theUrl) {
+		Validate.notBlank(theUrl, "Base URL must not be null or empty");
+
+		int starIdx = theUrl.indexOf('*');
+		if (starIdx != -1) {
+			if (starIdx != theUrl.length() - 1) {
+				throw new IllegalArgumentException("Base URL wildcard character (*) can only appear at the end of the string: " + theUrl);
+			}
+		}
+
 	}
 
 }
