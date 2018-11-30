@@ -3,10 +3,10 @@ version: '3.5'
 services:
   hapi_db:
     container_name: hapi-mysql
-    # build: ./db
-    image: mysql:5.6
+    build: ./mysql
+    # image: mysql:5.6
     volumes:
-      - ./db:/docker-entrypoint-initdb.d
+      - ./mysql/db:/docker-entrypoint-initdb.d
       - db_data:/var/lib/mysql
     environment:
       MYSQL_ROOT_PASSWORD: "root"
@@ -28,5 +28,5 @@ volumes:
     db_data:
 networks:
   web_server:
-    external:
-      name: carespan_network
+    # external:
+    #   name: carespan_hapi_network
